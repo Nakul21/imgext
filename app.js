@@ -11,6 +11,26 @@ let imageDataUrl = '';
 let extractedText = '';
 let recognizer;
 
+function initDocTR() {
+    if (typeof doctr !== 'undefined') {
+        loadModel();
+    } else {
+        console.error('docTR library not loaded');
+    }
+}
+
+async function loadModel() {
+    try {
+        recognizer = await doctr.load('crnn_vgg16_bn');
+        console.log('Model loaded successfully');
+    } catch (error) {
+        console.error('Error loading model:', error);
+    }
+}
+
+// Call this function after the page has loaded
+window.addEventListener('load', initDocTR);
+
 async function setupCamera() {
     const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
     video.srcObject = stream;
@@ -21,9 +41,7 @@ async function setupCamera() {
     });
 }
 
-async function loadModel() {
-    recognizer = await doctr.load('crnn_vgg16_bn');
-}
+
 
 captureButton.addEventListener('click', async () => {
     canvas.width = video.videoWidth;
