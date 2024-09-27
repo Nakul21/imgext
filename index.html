@@ -1,1 +1,29 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ImageBrush</title>
+    <link rel="stylesheet" href="styles.css">
+    <link rel="manifest" href="manifest.json">
+</head>
+<body>
+    <div class="app-container">
+        <video id="video" autoplay playsinline></video>
+        <canvas id="canvas"></canvas>
+        <div class="controls">
+            <button id="captureButton" class="btn">Capture</button>
+            <div id="actionButtons" style="display: none;">
+                <button id="sendButton" class="btn">Send</button>
+                <button id="discardButton" class="btn">Discard</button>
+            </div>
+        </div>
+        <div id="result" class="result"></div>
+        <div id="apiResponse" class="api-response"></div>
+    </div>
 
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/text-recognition"></script>
+    <script src="app.js"></script>
+</body>
+</html>
