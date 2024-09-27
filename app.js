@@ -8,6 +8,8 @@ const resultElement = document.getElementById('result');
 const apiResponseElement = document.getElementById('apiResponse');
 
 let imageDataUrl = '';
+let extractedText = '';
+let recognizer;
 
 async function setupCamera() {
     const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
@@ -19,24 +21,41 @@ async function setupCamera() {
     });
 }
 
-captureButton.addEventListener('click', () => {
+async function loadModel() {
+    recognizer = await doctr.load('crnn_vgg16_bn');
+}
+
+captureButton.addEventListener('click', async () => {
     canvas.width = video.videoWidth;
     canvas.height = video.videoHeight;
     canvas.getContext('2d').drawImage(video, 0, 0, canvas.width, canvas.height);
     
     imageDataUrl = canvas.toDataURL('image/jpeg');
-    resultElement.textContent = 'Image captured. Ready to send or discard.';
-    toggleButtons(true);
+    resultElement.textContent = 'Processing image...';
+    
+    try {
+        const img = new Image();
+        img.src = imageDataUrl;
+        await img.decode();
+
+        const predictions = await recognizer.predict(img);
+        extractedText = predictions.map(pred => pred.text).join(' ');
+        resultElement.textContent = `Extracted Text: ${extractedText}`;
+        toggleButtons(true);
+    } catch (error) {
+        console.error('Error during text extraction:', error);
+        resultElement.textContent = 'Error occurred during text extraction';
+    }
 });
 
 sendButton.addEventListener('click', async () => {
     try {
-        const response = await fetch('https://api.example.com/image', {
+        const response = await fetch('https://api.example.com/text', {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
             },
-            body: JSON.stringify({ image: imageDataUrl }),
+            body: JSON.stringify({ text: extractedText }),
         });
         const data = await response.json();
         apiResponseElement.textContent = `API Response: ${JSON.stringify(data)}`;
@@ -57,11 +76,22 @@ function toggleButtons(showActionButtons) {
 function resetUI() {
     toggleButtons(false);
     resultElement.textContent = '';
+    apiResponseElement.textContent = '';
     imageDataUrl = '';
+    extractedText = '';
+    clearCanvas();
+}
+
+function clearCanvas() {
+    const context = canvas.getContext('2d');
+    context.clearRect(0, 0, canvas.width, canvas.height);
 }
 
 async function init() {
     await setupCamera();
+    await loadModel();
+    captureButton.disabled = false;
+    captureButton.textContent = 'Capture';
 }
 
 init();
