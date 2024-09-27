@@ -7,12 +7,7 @@ const discardButton = document.getElementById('discardButton');
 const resultElement = document.getElementById('result');
 const apiResponseElement = document.getElementById('apiResponse');
 
-let model;
-let extractedText = '';
-
-async function initializeModel() {
-    model = await tf.loadGraphModel('https://tfhub.dev/tensorflow/tfjs-model/ssd_mobilenet_v2/1/default/1', { fromTFHub: true });
-}
+let imageDataUrl = '';
 
 async function setupCamera() {
     const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
@@ -24,52 +19,24 @@ async function setupCamera() {
     });
 }
 
-captureButton.addEventListener('click', async () => {
-    if (!model) {
-        console.error('Model not loaded yet');
-        return;
-    }
-
+captureButton.addEventListener('click', () => {
     canvas.width = video.videoWidth;
     canvas.height = video.videoHeight;
     canvas.getContext('2d').drawImage(video, 0, 0, canvas.width, canvas.height);
     
-    const imageTensor = tf.browser.fromPixels(canvas);
-    const resized = tf.image.resizeBilinear(imageTensor, [300, 300]);
-    const casted = resized.cast('int32');
-    const expanded = casted.expandDims(0);
-    
-    try {
-        const predictions = await model.executeAsync(expanded);
-        const boxes = await predictions[1].array();
-        const classes = await predictions[2].array();
-        const scores = await predictions[4].array();
-
-        // Filter for text detections (class 73 is 'book' which often contains text)
-        const textDetections = boxes[0].filter((box, i) => classes[0][i] === 73 && scores[0][i] > 0.5);
-        
-        extractedText = `Detected ${textDetections.length} potential text areas`;
-        resultElement.textContent = extractedText;
-        toggleButtons(true);
-    } catch (error) {
-        console.error('Error during object detection:', error);
-        resultElement.textContent = 'Error occurred during object detection';
-    } finally {
-        imageTensor.dispose();
-        resized.dispose();
-        casted.dispose();
-        expanded.dispose();
-    }
+    imageDataUrl = canvas.toDataURL('image/jpeg');
+    resultElement.textContent = 'Image captured. Ready to send or discard.';
+    toggleButtons(true);
 });
 
 sendButton.addEventListener('click', async () => {
     try {
-        const response = await fetch('https://api.example.com/text', {
+        const response = await fetch('https://api.example.com/image', {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
             },
-            body: JSON.stringify({ text: extractedText }),
+            body: JSON.stringify({ image: imageDataUrl }),
         });
         const data = await response.json();
         apiResponseElement.textContent = `API Response: ${JSON.stringify(data)}`;
@@ -90,12 +57,11 @@ function toggleButtons(showActionButtons) {
 function resetUI() {
     toggleButtons(false);
     resultElement.textContent = '';
-    extractedText = '';
+    imageDataUrl = '';
 }
 
 async function init() {
     await setupCamera();
-    await initializeModel();
 }
 
 init();
@@ -103,7 +69,7 @@ init();
 // Service Worker Registration
 if ('serviceWorker' in navigator) {
     window.addEventListener('load', () => {
-        navigator.serviceWorker.register('service-worker.js')
+        navigator.serviceWorker.register('/service-worker.js')
             .then(registration => {
                 console.log('ServiceWorker registration successful with scope: ', registration.scope);
             }, err => {
