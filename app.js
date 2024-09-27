@@ -11,7 +11,7 @@ let model;
 let extractedText = '';
 
 async function initializeModel() {
-    model = await textRecognition.load();
+    model = await tf.automl.textDetection.loadModel('https://storage.googleapis.com/tfjs-models/savedmodel/automl/text_detection/1/model.json');
 }
 
 async function setupCamera() {
@@ -35,19 +35,17 @@ captureButton.addEventListener('click', async () => {
     canvas.getContext('2d').drawImage(video, 0, 0, canvas.width, canvas.height);
     
     const imageTensor = tf.browser.fromPixels(canvas);
-    const preprocessedImage = tf.image.resizeBilinear(imageTensor, [320, 320]).div(tf.scalar(255));
     
     try {
-        const result = await model.recognize(preprocessedImage);
-        extractedText = result.join(' ');
+        const result = await model.detect(imageTensor);
+        extractedText = result.map(detection => detection.label).join(' ');
         resultElement.textContent = extractedText;
         toggleButtons(true);
     } catch (error) {
-        console.error('Error during text recognition:', error);
-        resultElement.textContent = 'Error occurred during text recognition';
+        console.error('Error during text detection:', error);
+        resultElement.textContent = 'Error occurred during text detection';
     } finally {
         imageTensor.dispose();
-        preprocessedImage.dispose();
     }
 });
 
@@ -92,7 +90,7 @@ init();
 // Service Worker Registration
 if ('serviceWorker' in navigator) {
     window.addEventListener('load', () => {
-        navigator.serviceWorker.register('./service-worker.js')
+        navigator.serviceWorker.register('/service-worker.js')
             .then(registration => {
                 console.log('ServiceWorker registration successful with scope: ', registration.scope);
             }, err => {
