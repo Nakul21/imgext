@@ -12,11 +12,7 @@ let extractedText = '';
 let recognizer;
 
 function initDocTR() {
-    if (typeof doctr !== 'undefined') {
         loadModel();
-    } else {
-        console.error('docTR library not loaded');
-    }
 }
 
 async function loadModel() {
