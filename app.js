@@ -17,7 +17,7 @@ function initDocTR() {
 
 async function loadModel() {
     try {
-        recognizer = await loadGraphModel('models/crnn_mobilenet_v2/model.json');
+        recognizer = await tf.loadGraphModel('models/crnn_mobilenet_v2/model.json');
         console.log('Model loaded successfully');
     } catch (error) {
         console.error('Error loading model:', error);
