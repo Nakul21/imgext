@@ -37,7 +37,18 @@ async function setupCamera() {
     });
 }
 
-
+async function preprocessImage(imageElement) {
+  try {
+    let img = tf.browser.fromPixels(imageElement).toFloat();
+    img = tf.image.resizeBilinear(img, [224, 224]);
+    const offset = tf.scalar(127.5);
+    const normalized = img.sub(offset).div(offset);
+    const batched = normalized.reshape([1, 224, 224, 3]);
+    return batched;
+  } catch (error) {
+    outputDiv.textContent = `Error in model prediction: ${error}`;
+  }
+}
 
 captureButton.addEventListener('click', async () => {
     canvas.width = video.videoWidth;
@@ -52,7 +63,7 @@ captureButton.addEventListener('click', async () => {
         img.src = imageDataUrl;
         await img.decode();
 
-        const predictions = await recognizer.predict(img);
+        const predictions = await recognizer.predict(preprocessImage(img));
         extractedText = predictions.map(pred => pred.text).join(' ');
         resultElement.textContent = `Extracted Text: ${extractedText}`;
         toggleButtons(true);
