@@ -53,6 +53,26 @@ async function preprocessImage(imageElement) {
     }
 }
 
+function decodeText(predictions) {
+    // This is a simple example. You might need to adjust this based on your model's specific output format.
+    const charset = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+    let text = '';
+    for (let i = 0; i < predictions.length; i++) {
+        let max = predictions[i][0];
+        let maxIndex = 0;
+        for (let j = 1; j < predictions[i].length; j++) {
+            if (predictions[i][j] > max) {
+                max = predictions[i][j];
+                maxIndex = j;
+            }
+        }
+        if (maxIndex < charset.length) {
+            text += charset[maxIndex];
+        }
+    }
+    return text;
+}
+
 captureButton.addEventListener('click', async () => {
     canvas.width = video.videoWidth;
     canvas.height = video.videoHeight;
@@ -71,14 +91,19 @@ captureButton.addEventListener('click', async () => {
         // Use executeAsync and provide a named input
         const predictions = await recognizer.executeAsync({'x': inputTensor});
         
-        // Process the predictions based on your model's output format
-        // This is an example and may need to be adjusted
+        // Process the predictions
+        let outputArray;
         if (Array.isArray(predictions)) {
-            extractedText = predictions.map(tensor => tensor.dataSync()[0]).join(' ');
+            outputArray = predictions.map(tensor => tensor.arraySync());
         } else {
-            const outputData = await predictions.data();
-            extractedText = outputData.join(' ');
+            outputArray = await predictions.array();
         }
+        
+        // Log the output array for debugging
+        console.log('Raw model output:', outputArray);
+        
+        // Decode the output array into text
+        extractedText = decodeText(outputArray);
         
         resultElement.textContent = `Extracted Text: ${extractedText}`;
         toggleButtons(true);
