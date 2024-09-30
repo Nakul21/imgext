@@ -1,9 +1,11 @@
-// Constants
+// Constants (adapted from constants.ts)
 const REC_MEAN = 0.694;
 const REC_STD = 0.298;
 const DET_MEAN = 0.785;
 const DET_STD = 0.275;
 const VOCAB = "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ!\"#$%&'()*+,-./:;<=>?@[\\]^_`{|}~°£€¥¢฿àâéèêëîïôùûüçÀÂÉÈÊËÎÏÔÙÛÜÇ";
+const TARGET_SIZE_DETECTION = [512, 512];
+const TARGET_SIZE_RECOGNITION = [32, 128];
 
 // DOM Elements
 const video = document.getElementById('video');
@@ -20,6 +22,7 @@ let extractedText = '';
 let detectionModel;
 let recognitionModel;
 
+// Load models
 async function loadModels() {
     try {
         detectionModel = await tf.loadGraphModel('models/db_mobilenet_v2/model.json');
@@ -30,6 +33,7 @@ async function loadModels() {
     }
 }
 
+// Camera setup
 async function setupCamera() {
     const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
     video.srcObject = stream;
@@ -40,10 +44,10 @@ async function setupCamera() {
     });
 }
 
+// Image preprocessing for detection (adapted)
 async function preprocessImageForDetection(imageElement) {
-    const targetSize = [512, 512];
     let img = tf.browser.fromPixels(imageElement);
-    img = tf.image.resizeBilinear(img, targetSize);
+    img = tf.image.resizeBilinear(img, TARGET_SIZE_DETECTION);
     img = img.toFloat();
     let mean = tf.scalar(255 * DET_MEAN);
     let std = tf.scalar(255 * DET_STD);
@@ -51,10 +55,10 @@ async function preprocessImageForDetection(imageElement) {
     return img.expandDims(0);
 }
 
+// Image preprocessing for recognition (adapted)
 async function preprocessImageForRecognition(imageElement) {
-    const targetSize = [32, 128];
     let img = tf.browser.fromPixels(imageElement);
-    img = tf.image.resizeBilinear(img, targetSize);
+    img = tf.image.resizeBilinear(img, TARGET_SIZE_RECOGNITION);
     img = img.toFloat();
     let mean = tf.scalar(255 * REC_MEAN);
     let std = tf.scalar(255 * REC_STD);
@@ -62,34 +66,34 @@ async function preprocessImageForRecognition(imageElement) {
     return img.expandDims(0);
 }
 
+// Text decoding function (same as before)
 function decodeText(bestPath) {
-  let blank = 126;
-  var words = [];
-  for (const sequence of bestPath) {
-    let collapsed = "";
-    let added = false;
-    const values = sequence.dataSync();
-    const arr = Array.from(values);
-    for (const k of arr) {
-      if (k === blank) {
-        added = false;
-      } else if (k !== blank && added === false) {
-        collapsed += VOCAB[k];
-        added = true;
-      }
+    let blank = 126;
+    var words = [];
+    for (const sequence of bestPath) {
+        let collapsed = "";
+        let added = false;
+        const values = sequence.dataSync();
+        const arr = Array.from(values);
+        for (const k of arr) {
+            if (k === blank) {
+                added = false;
+            } else if (k !== blank && added === false) {
+                collapsed += VOCAB[k];
+                added = true;
+            }
+        }
+        words.push(collapsed);
     }
-    words.push(collapsed);
-  }
-  return words;
+    return words;
 }
 
+// Detect text regions (improved bounding box extraction)
 async function detectTextRegions(imageElement) {
     const inputTensor = await preprocessImageForDetection(imageElement);
     const predictions = await detectionModel.executeAsync(inputTensor);
     
-    console.log('Detection model output:', predictions);
-
-    let boxes;
+    let boxes = [];
     if (Array.isArray(predictions) && predictions.length > 0) {
         boxes = await extractBoundingBoxes(predictions[0]);
         tf.dispose([inputTensor, ...predictions]);
@@ -98,13 +102,12 @@ async function detectTextRegions(imageElement) {
         tf.dispose([inputTensor, predictions]);
     } else {
         console.error('Unexpected output from detection model:', predictions);
-        boxes = [];
     }
 
-    
     return boxes;
 }
 
+// Extract bounding boxes (adapted for OCR)
 async function extractBoundingBoxes(prediction, threshold = 0.3) {
     if (!prediction || !prediction.shape) {
         console.error('Invalid prediction tensor');
@@ -118,7 +121,7 @@ async function extractBoundingBoxes(prediction, threshold = 0.3) {
     for (let y = 0; y < height; y++) {
         for (let x = 0; x < width; x++) {
             if (data[0][y][x][0] > threshold) {
-                boxes.push({x, y, width: 1, height: 1});
+                boxes.push({ x, y, width: 1, height: 1 });
             }
         }
     }
@@ -126,15 +129,13 @@ async function extractBoundingBoxes(prediction, threshold = 0.3) {
     return mergeBoundingBoxes(boxes);
 }
 
+// Merge bounding boxes (same)
 function mergeBoundingBoxes(boxes, threshold = 5) {
     const merged = [];
     for (const box of boxes) {
         let shouldMerge = false;
         for (const mergedBox of merged) {
-            if (
-                Math.abs(box.x - mergedBox.x) < threshold &&
-                Math.abs(box.y - mergedBox.y) < threshold
-            ) {
+            if (Math.abs(box.x - mergedBox.x) < threshold && Math.abs(box.y - mergedBox.y) < threshold) {
                 mergedBox.x = Math.min(mergedBox.x, box.x);
                 mergedBox.y = Math.min(mergedBox.y, box.y);
                 mergedBox.width = Math.max(mergedBox.width, box.width);
@@ -144,12 +145,13 @@ function mergeBoundingBoxes(boxes, threshold = 5) {
             }
         }
         if (!shouldMerge) {
-            merged.push({...box});
+            merged.push({ ...box });
         }
     }
     return merged;
 }
 
+// Capture and process image
 captureButton.addEventListener('click', async () => {
     canvas.width = video.videoWidth;
     canvas.height = video.videoHeight;
@@ -184,7 +186,7 @@ captureButton.addEventListener('click', async () => {
             croppedImg.src = croppedCanvas.toDataURL('image/jpeg');
             await croppedImg.decode();
 
-            const inputTensor = await preprocessImageForRecognition(img);
+            const inputTensor = await preprocessImageForRecognition(croppedImg);
             const predictions = await recognitionModel.executeAsync(inputTensor);
             let probabilities = tf.softmax(predictions, -1);
             let bestPath = tf.unstack(tf.argMax(probabilities, -1), 0);
@@ -205,6 +207,7 @@ captureButton.addEventListener('click', async () => {
     }
 });
 
+// Send the extracted text to API
 sendButton.addEventListener('click', async () => {
     try {
         const response = await fetch('https://api.example.com/text', {
@@ -223,8 +226,10 @@ sendButton.addEventListener('click', async () => {
     resetUI();
 });
 
+// Discard the current capture
 discardButton.addEventListener('click', resetUI);
 
+// Helper functions to toggle buttons and reset UI
 function toggleButtons(showActionButtons) {
     captureButton.style.display = showActionButtons ? 'none' : 'block';
     actionButtons.style.display = showActionButtons ? 'block' : 'none';
@@ -243,6 +248,7 @@ function clearCanvas() {
     canvas.getContext('2d').clearRect(0, 0, canvas.width, canvas.height);
 }
 
+// Initialize the app
 async function init() {
     await setupCamera();
     await loadModels();
@@ -259,7 +265,6 @@ if ('serviceWorker' in navigator) {
             .then(registration => {
                 console.log('ServiceWorker registration successful with scope: ', registration.scope);
             }, err => {
-                console.log('ServiceWorker registration failed: ', err);
-            });
-    });
-}
+                console.log('ServiceWorker registraction failed: ', err);
+            }):
+    }
