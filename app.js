@@ -193,8 +193,8 @@ captureButton.addEventListener('click', async () => {
 
 sendButton.addEventListener('click', async () => {
 
-    const text = extractedText.textContent;
-    if (!text) return;
+    //const text = extractedText.textContent;
+    if (!extractedText) return;
     //sendButton.disabled = true;
     apiResponseElement.textContent = 'Submitting...';
     let msgKey = new Date().getTime();
@@ -203,7 +203,7 @@ sendButton.addEventListener('click', async () => {
             method: 'PUT',
             body: JSON.stringify({
                 title: 'Extracted Text',
-                data: text,
+                data: extractedText,
                 userId: "imageBrush",
             }),
             headers: {
