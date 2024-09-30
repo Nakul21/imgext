@@ -43,7 +43,7 @@ async function preprocessImage(imageElement) {
     img = tf.image.resizeBilinear(img, [224, 224]);
     const offset = tf.scalar(127.5);
     const normalized = img.sub(offset).div(offset);
-    const batched = normalized.reshape([1, 224, 224, 3]);
+    const batched = normalized.reshape([-1,32,128,3]);
     return batched;
   } catch (error) {
     resultElement.textContent = `Error in model prediction: ${error}`;
