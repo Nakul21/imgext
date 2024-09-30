@@ -155,7 +155,7 @@ async function detectAndRecognizeText(imageElement) {
         await croppedImg.decode();
 
         const inputTensor = await preprocessImageForRecognition(croppedImg);
-        const predictions = await recognitionModel.predict(inputTensor);
+        const predictions = await recognitionModel.executeAsync(inputTensor);
         const probabilities = tf.softmax(predictions, -1);
         const bestPath = tf.unstack(tf.argMax(probabilities, -1), 0);
         
@@ -230,21 +230,13 @@ function clearCanvas() {
 }
 
 async function init() {
-    await setupCamera();
     await loadModels();
-    await loadOpenCV();
+    await setupCamera();
     captureButton.disabled = false;
     captureButton.textContent = 'Capture';
 }
 
-function loadOpenCV() {
-    return new Promise((resolve) => {
-        const script = document.createElement('script');
-        script.src = 'https://docs.opencv.org/4.5.2/opencv.js';
-        script.onload = () => resolve();
-        document.body.appendChild(script);
-    });
-}
+
 
 init();
 
