@@ -184,7 +184,7 @@ captureButton.addEventListener('click', async () => {
             croppedImg.src = croppedCanvas.toDataURL('image/jpeg');
             await croppedImg.decode();
 
-            const inputTensor = await preprocessImageForRecognition(croppedImg);
+            const inputTensor = await preprocessImageForRecognition(img);
             const predictions = await recognitionModel.executeAsync(inputTensor);
             let probabilities = tf.softmax(predictions, -1);
             let bestPath = tf.unstack(tf.argMax(probabilities, -1), 0);
