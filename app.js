@@ -62,15 +62,25 @@ async function preprocessImageForRecognition(imageElement) {
     return img.expandDims(0);
 }
 
-function decodeText(predictions) {
-    let text = '';
-    for (let i = 0; i < predictions.length; i++) {
-        let maxIndex = predictions[i].indexOf(Math.max(...predictions[i]));
-        if (maxIndex < VOCAB.length) {
-            text += VOCAB[maxIndex];
-        }
+function decodeText(bestPath) {
+  let blank = 126;
+  var words = [];
+  for (const sequence of bestPath) {
+    let collapsed = "";
+    let added = false;
+    const values = sequence.dataSync();
+    const arr = Array.from(values);
+    for (const k of arr) {
+      if (k === blank) {
+        added = false;
+      } else if (k !== blank && added === false) {
+        collapsed += VOCAB[k];
+        added = true;
+      }
     }
-    return text;
+    words.push(collapsed);
+  }
+  return words;
 }
 
 async function detectTextRegions(imageElement) {
@@ -176,9 +186,10 @@ captureButton.addEventListener('click', async () => {
 
             const inputTensor = await preprocessImageForRecognition(croppedImg);
             const predictions = await recognitionModel.executeAsync(inputTensor);
-            const outputArray = await predictions[0].array();
+            let probabilities = tf.softmax(predictions, -1);
+            let bestPath = tf.unstack(tf.argMax(probabilities, -1), 0);
             
-            const text = decodeText(outputArray[0]);
+            const text = decodeText(bestPath);
             fullText += text + ' ';
 
             tf.dispose([inputTensor, ...predictions]);
