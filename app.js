@@ -75,9 +75,9 @@ function decodeText(predictions) {
 
 async function detectTextRegions(imageElement) {
     const inputTensor = await preprocessImageForDetection(imageElement);
-    const prediction = await detectionModel.predict(inputTensor);
-    const boxes = await extractBoundingBoxes(prediction);
-    tf.dispose([inputTensor, prediction]);
+    const prediction = await detectionModel.executeAsync(inputTensor);
+    const boxes = await extractBoundingBoxes(prediction[0]);
+    tf.dispose([inputTensor, ...prediction]);
     return boxes;
 }
 
@@ -154,13 +154,13 @@ captureButton.addEventListener('click', async () => {
             await croppedImg.decode();
 
             const inputTensor = await preprocessImageForRecognition(croppedImg);
-            const predictions = await recognitionModel.predict(inputTensor);
-            const outputArray = await predictions.array();
+            const predictions = await recognitionModel.executeAsync(inputTensor);
+            const outputArray = await predictions[0].array();
             
             const text = decodeText(outputArray[0]);
             fullText += text + ' ';
 
-            tf.dispose([inputTensor, predictions]);
+            tf.dispose([inputTensor, ...predictions]);
         }
         
         extractedText = fullText.trim();
@@ -230,4 +230,4 @@ if ('serviceWorker' in navigator) {
                 console.log('ServiceWorker registration failed: ', err);
             });
     });
-}
+                  }
