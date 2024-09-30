@@ -247,12 +247,20 @@ function clearCanvas() {
 
 async function init() {
     await loadModels();
+    await loadOpenCV();
     await setupCamera();
     captureButton.disabled = false;
     captureButton.textContent = 'Capture';
 }
 
-
+function loadOpenCV() {
+    return new Promise((resolve) => {
+        const script = document.createElement('script');
+        script.src = 'https://docs.opencv.org/4.5.2/opencv.js';
+        script.onload = () => resolve();
+        document.body.appendChild(script);
+    });
+}
 
 init();
 
