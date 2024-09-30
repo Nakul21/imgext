@@ -12,7 +12,7 @@ let extractedText = '';
 let recognizer;
 
 function initDocTR() {
-        loadModel();
+    loadModel();
 }
 
 async function loadModel() {
@@ -38,16 +38,19 @@ async function setupCamera() {
 }
 
 async function preprocessImage(imageElement) {
-  try {
-    let img = tf.browser.fromPixels(imageElement).toFloat();
-    img = tf.image.resizeBilinear(img, [224, 224]);
-    const offset = tf.scalar(127.5);
-    const normalized = img.sub(offset).div(offset);
-    const batched = normalized.reshape([-1,32,128,3]);
-    return batched;
-  } catch (error) {
-    resultElement.textContent = `Error in model prediction: ${error}`;
-  }
+    try {
+        let img = tf.browser.fromPixels(imageElement).toFloat();
+        // Adjust the size to match what the model expects
+        img = tf.image.resizeBilinear(img, [32, 128]);
+        const offset = tf.scalar(127.5);
+        const normalized = img.sub(offset).div(offset);
+        // Reshape to [1, 32, 128, 3] to add the batch dimension
+        const batched = normalized.reshape([1, 32, 128, 3]);
+        return batched;
+    } catch (error) {
+        resultElement.textContent = `Error in image preprocessing: ${error}`;
+        throw error;
+    }
 }
 
 captureButton.addEventListener('click', async () => {
@@ -63,8 +66,15 @@ captureButton.addEventListener('click', async () => {
         img.src = imageDataUrl;
         await img.decode();
 
-        const predictions = await recognizer.executeAsync(await preprocessImage(img));
-        extractedText = predictions.map(pred => pred.text).join(' ');
+        const inputTensor = await preprocessImage(img);
+        
+        // Use execute instead of executeAsync, and provide a named input
+        const predictions = recognizer.execute({'x': inputTensor});
+        
+        // Assuming the output is a string tensor, get its values
+        const outputData = await predictions.data();
+        extractedText = outputData.join(' '); // Adjust this based on your model's output format
+        
         resultElement.textContent = `Extracted Text: ${extractedText}`;
         toggleButtons(true);
     } catch (error) {
