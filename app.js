@@ -82,6 +82,11 @@ async function detectTextRegions(imageElement) {
 }
 
 async function extractBoundingBoxes(prediction, threshold = 0.3) {
+    if (!prediction || !prediction.shape) {
+        console.error('Invalid prediction tensor');
+        return [];
+    }
+    
     const [height, width] = prediction.shape.slice(1, 3);
     const data = await prediction.array();
     const boxes = [];
@@ -230,4 +235,4 @@ if ('serviceWorker' in navigator) {
                 console.log('ServiceWorker registration failed: ', err);
             });
     });
-                  }
+}
