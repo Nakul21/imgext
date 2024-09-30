@@ -1,3 +1,11 @@
+// Constants
+const REC_MEAN = 0.694;
+const REC_STD = 0.298;
+const DET_MEAN = 0.785;
+const DET_STD = 0.275;
+const VOCAB = "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ!\"#$%&'()*+,-./:;<=>?@[\\]^_`{|}~°£€¥¢฿àâéèêëîïôùûüçÀÂÉÈÊËÎÏÔÙÛÜÇ";
+
+// DOM Elements
 const video = document.getElementById('video');
 const canvas = document.getElementById('canvas');
 const captureButton = document.getElementById('captureButton');
@@ -9,23 +17,18 @@ const apiResponseElement = document.getElementById('apiResponse');
 
 let imageDataUrl = '';
 let extractedText = '';
-let recognizer;
+let detectionModel;
+let recognitionModel;
 
-function initDocTR() {
-    loadModel();
-}
-
-async function loadModel() {
+async function loadModels() {
     try {
-        recognizer = await tf.loadGraphModel('models/crnn_mobilenet_v2/model.json');
-        console.log('Model loaded successfully');
+        detectionModel = await tf.loadGraphModel('models/db_mobilenet_v2/model.json');
+        recognitionModel = await tf.loadGraphModel('models/crnn_mobilenet_v2/model.json');
+        console.log('Models loaded successfully');
     } catch (error) {
-        console.error('Error loading model:', error);
+        console.error('Error loading models:', error);
     }
 }
-
-// Call this function after the page has loaded
-window.addEventListener('load', initDocTR);
 
 async function setupCamera() {
     const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
@@ -37,44 +40,85 @@ async function setupCamera() {
     });
 }
 
-async function preprocessImage(imageElement) {
-    try {
-        let img = tf.browser.fromPixels(imageElement).toFloat();
-        // Adjust the size to match what the model expects
-        img = tf.image.resizeBilinear(img, [32, 128]);
-        const offset = tf.scalar(127.5);
-        const normalized = img.sub(offset).div(offset);
-        // Reshape to [1, 32, 128, 3] to add the batch dimension
-        const batched = normalized.reshape([1, 32, 128, 3]);
-        return batched;
-    } catch (error) {
-        resultElement.textContent = `Error in image preprocessing: ${error}`;
-        throw error;
-    }
+async function preprocessImageForDetection(imageElement) {
+    const targetSize = [512, 512];
+    let img = tf.browser.fromPixels(imageElement);
+    img = tf.image.resizeBilinear(img, targetSize);
+    img = img.toFloat();
+    let mean = tf.scalar(255 * DET_MEAN);
+    let std = tf.scalar(255 * DET_STD);
+    img = img.sub(mean).div(std);
+    return img.expandDims(0);
+}
+
+async function preprocessImageForRecognition(imageElement) {
+    const targetSize = [32, 128];
+    let img = tf.browser.fromPixels(imageElement);
+    img = tf.image.resizeBilinear(img, targetSize);
+    img = img.toFloat();
+    let mean = tf.scalar(255 * REC_MEAN);
+    let std = tf.scalar(255 * REC_STD);
+    img = img.sub(mean).div(std);
+    return img.expandDims(0);
 }
 
 function decodeText(predictions) {
-    // Assuming the charset order matches the model's output
-    const charset = "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ!\"#$%&'()*+,-./:;<=>?@[\\]^_`{|}~°£€¥¢฿àâéèêëîïôùûüçÀÂÉÈÊËÎÏÔÙÛÜÇ";
     let text = '';
-    
-    // Check if predictions is a 2D array
-    if (Array.isArray(predictions[0])) {
-        for (let i = 0; i < predictions.length; i++) {
-            let maxIndex = predictions[i].indexOf(Math.max(...predictions[i]));
-            if (maxIndex < charset.length) {
-                text += charset[maxIndex];
-            }
-        }
-    } else {
-        // If it's a 1D array, assume it's for a single character
-        let maxIndex = predictions.indexOf(Math.max(...predictions));
-        if (maxIndex < charset.length) {
-            text = charset[maxIndex];
+    for (let i = 0; i < predictions.length; i++) {
+        let maxIndex = predictions[i].indexOf(Math.max(...predictions[i]));
+        if (maxIndex < VOCAB.length) {
+            text += VOCAB[maxIndex];
         }
     }
-    
     return text;
+}
+
+async function detectTextRegions(imageElement) {
+    const inputTensor = await preprocessImageForDetection(imageElement);
+    const prediction = await detectionModel.predict(inputTensor);
+    const boxes = await extractBoundingBoxes(prediction);
+    tf.dispose([inputTensor, prediction]);
+    return boxes;
+}
+
+async function extractBoundingBoxes(prediction, threshold = 0.3) {
+    const [height, width] = prediction.shape.slice(1, 3);
+    const data = await prediction.array();
+    const boxes = [];
+
+    for (let y = 0; y < height; y++) {
+        for (let x = 0; x < width; x++) {
+            if (data[0][y][x][0] > threshold) {
+                boxes.push({x, y, width: 1, height: 1});
+            }
+        }
+    }
+
+    return mergeBoundingBoxes(boxes);
+}
+
+function mergeBoundingBoxes(boxes, threshold = 5) {
+    const merged = [];
+    for (const box of boxes) {
+        let shouldMerge = false;
+        for (const mergedBox of merged) {
+            if (
+                Math.abs(box.x - mergedBox.x) < threshold &&
+                Math.abs(box.y - mergedBox.y) < threshold
+            ) {
+                mergedBox.x = Math.min(mergedBox.x, box.x);
+                mergedBox.y = Math.min(mergedBox.y, box.y);
+                mergedBox.width = Math.max(mergedBox.width, box.width);
+                mergedBox.height = Math.max(mergedBox.height, box.height);
+                shouldMerge = true;
+                break;
+            }
+        }
+        if (!shouldMerge) {
+            merged.push({...box});
+        }
+    }
+    return merged;
 }
 
 captureButton.addEventListener('click', async () => {
@@ -90,30 +134,39 @@ captureButton.addEventListener('click', async () => {
         img.src = imageDataUrl;
         await img.decode();
 
-        const inputTensor = await preprocessImage(img);
-        
-        // Use executeAsync and provide a named input
-        const predictions = await recognizer.executeAsync({'x': inputTensor});
-        
-        // Process the predictions
-        let outputArray;
-        if (Array.isArray(predictions)) {
-            outputArray = predictions.map(tensor => tensor.arraySync());
-        } else {
-            outputArray = await predictions.array();
+        // Detection step
+        const boundingBoxes = await detectTextRegions(img);
+
+        // Recognition step
+        let fullText = '';
+        for (const box of boundingBoxes) {
+            const croppedCanvas = document.createElement('canvas');
+            croppedCanvas.width = box.width;
+            croppedCanvas.height = box.height;
+            croppedCanvas.getContext('2d').drawImage(
+                img, 
+                box.x, box.y, box.width, box.height,
+                0, 0, box.width, box.height
+            );
+
+            const croppedImg = new Image();
+            croppedImg.src = croppedCanvas.toDataURL('image/jpeg');
+            await croppedImg.decode();
+
+            const inputTensor = await preprocessImageForRecognition(croppedImg);
+            const predictions = await recognitionModel.predict(inputTensor);
+            const outputArray = await predictions.array();
+            
+            const text = decodeText(outputArray[0]);
+            fullText += text + ' ';
+
+            tf.dispose([inputTensor, predictions]);
         }
         
-        // Log the output array for debugging
-        console.log('Raw model output:', outputArray);
-        
-        // Decode the output array into text
-        extractedText = decodeText(outputArray[0]); // Note: we're passing outputArray[0] here
-        
+        extractedText = fullText.trim();
         resultElement.textContent = `Extracted Text: ${extractedText}`;
         toggleButtons(true);
 
-        // Don't forget to dispose of the tensors to free up memory
-        tf.dispose([inputTensor, predictions]);
     } catch (error) {
         console.error('Error during text extraction:', error);
         resultElement.textContent = 'Error occurred during text extraction';
@@ -155,13 +208,12 @@ function resetUI() {
 }
 
 function clearCanvas() {
-    const context = canvas.getContext('2d');
-    context.clearRect(0, 0, canvas.width, canvas.height);
+    canvas.getContext('2d').clearRect(0, 0, canvas.width, canvas.height);
 }
 
 async function init() {
     await setupCamera();
-    await loadModel();
+    await loadModels();
     captureButton.disabled = false;
     captureButton.textContent = 'Capture';
 }
