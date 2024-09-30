@@ -192,7 +192,7 @@ captureButton.addEventListener('click', async () => {
             const text = decodeText(bestPath);
             fullText += text + ' ';
 
-            tf.dispose([inputTensor, ...predictions]);
+            tf.dispose([inputTensor, predictions]);
         }
         
         extractedText = fullText.trim();
