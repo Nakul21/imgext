@@ -63,7 +63,7 @@ captureButton.addEventListener('click', async () => {
         img.src = imageDataUrl;
         await img.decode();
 
-        const predictions = await recognizer.predict(await preprocessImage(img));
+        const predictions = await recognizer.executeAsync(await preprocessImage(img));
         extractedText = predictions.map(pred => pred.text).join(' ');
         resultElement.textContent = `Extracted Text: ${extractedText}`;
         toggleButtons(true);
