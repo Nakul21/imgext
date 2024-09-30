@@ -54,27 +54,27 @@ async function preprocessImage(imageElement) {
 }
 
 function decodeText(predictions) {
-  const VOCAB = "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ!\"#$%&'()*+,-./:;<=>?@[\\]^_`{|}~°£€¥¢฿àâéèêëîïôùûüçÀÂÉÈÊËÎÏÔÙÛÜÇ";
-  // let probabilities = softmax(predictions, -1);
-  // let bestPath = unstack(argMax(probabilities, -1), 0);
-  let blank = 126;
-  var words = [];
-  for (const sequence of predictions) {
-    let collapsed = "";
-    let added = false;
-    const values = sequence.dataSync();
-    const arr = Array.from(values);
-    for (const k of arr) {
-      if (k === blank) {
-        added = false;
-      } else if (k !== blank && added === false) {
-        collapsed += VOCAB[k];
-        added = true;
-      }
+    // Assuming the charset order matches the model's output
+    const charset = "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ!\"#$%&'()*+,-./:;<=>?@[\\]^_`{|}~°£€¥¢฿àâéèêëîïôùûüçÀÂÉÈÊËÎÏÔÙÛÜÇ";
+    let text = '';
+    
+    // Check if predictions is a 2D array
+    if (Array.isArray(predictions[0])) {
+        for (let i = 0; i < predictions.length; i++) {
+            let maxIndex = predictions[i].indexOf(Math.max(...predictions[i]));
+            if (maxIndex < charset.length) {
+                text += charset[maxIndex];
+            }
+        }
+    } else {
+        // If it's a 1D array, assume it's for a single character
+        let maxIndex = predictions.indexOf(Math.max(...predictions));
+        if (maxIndex < charset.length) {
+            text = charset[maxIndex];
+        }
     }
-    words.push(collapsed);
-  }
-  return words;
+    
+    return text;
 }
 
 captureButton.addEventListener('click', async () => {
@@ -107,7 +107,7 @@ captureButton.addEventListener('click', async () => {
         console.log('Raw model output:', outputArray);
         
         // Decode the output array into text
-        extractedText = decodeText(outputArray);
+        extractedText = decodeText(outputArray[0]); // Note: we're passing outputArray[0] here
         
         resultElement.textContent = `Extracted Text: ${extractedText}`;
         toggleButtons(true);
