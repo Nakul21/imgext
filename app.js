@@ -75,9 +75,21 @@ function decodeText(predictions) {
 
 async function detectTextRegions(imageElement) {
     const inputTensor = await preprocessImageForDetection(imageElement);
-    const prediction = await detectionModel.executeAsync(inputTensor);
-    const boxes = await extractBoundingBoxes(prediction[0]);
-    tf.dispose([inputTensor, ...prediction]);
+    const predictions = await detectionModel.executeAsync(inputTensor);
+    
+    console.log('Detection model output:', predictions);
+
+    let boxes;
+    if (Array.isArray(predictions) && predictions.length > 0) {
+        boxes = await extractBoundingBoxes(predictions[0]);
+    } else if (predictions instanceof tf.Tensor) {
+        boxes = await extractBoundingBoxes(predictions);
+    } else {
+        console.error('Unexpected output from detection model:', predictions);
+        boxes = [];
+    }
+
+    tf.dispose([inputTensor, ...predictions]);
     return boxes;
 }
 
@@ -141,6 +153,8 @@ captureButton.addEventListener('click', async () => {
 
         // Detection step
         const boundingBoxes = await detectTextRegions(img);
+
+        console.log('Detected bounding boxes:', boundingBoxes);
 
         // Recognition step
         let fullText = '';
