@@ -55,11 +55,11 @@ async function preprocessImage(imageElement) {
 
 function decodeText(predictions) {
   const VOCAB = "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ!\"#$%&'()*+,-./:;<=>?@[\\]^_`{|}~°£€¥¢฿àâéèêëîïôùûüçÀÂÉÈÊËÎÏÔÙÛÜÇ";
-  let probabilities = softmax(predictions, -1);
-  let bestPath = unstack(argMax(probabilities, -1), 0);
+  // let probabilities = softmax(predictions, -1);
+  // let bestPath = unstack(argMax(probabilities, -1), 0);
   let blank = 126;
   var words = [];
-  for (const sequence of bestPath) {
+  for (const sequence of predictions) {
     let collapsed = "";
     let added = false;
     const values = sequence.dataSync();
