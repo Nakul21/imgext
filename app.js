@@ -266,6 +266,6 @@ if ('serviceWorker' in navigator) {
                 console.log('ServiceWorker registration successful with scope: ', registration.scope);
             }, err => {
                 console.log('ServiceWorker registraction failed: ', err);
-            }):
+            });
     });
     }
