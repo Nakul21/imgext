@@ -267,4 +267,5 @@ if ('serviceWorker' in navigator) {
             }, err => {
                 console.log('ServiceWorker registraction failed: ', err);
             }):
+    });
     }
