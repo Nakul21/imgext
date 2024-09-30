@@ -192,21 +192,37 @@ captureButton.addEventListener('click', async () => {
 });
 
 sendButton.addEventListener('click', async () => {
+
+    const text = extractedText.textContent;
+    if (!text) return;
+    //sendButton.disabled = true;
+    apiResponseElement.textContent = 'Submitting...';
+    let msgKey = new Date().getTime();
     try {
-        const response = await fetch('https://api.example.com/text', {
-            method: 'POST',
+        const response = await fetch('https://kvdb.io/NyKpFtJ7v392NS8ibLiofx/'+msgKey, {
+            method: 'PUT',
+            body: JSON.stringify({
+                title: 'Extracted Text',
+                data: text,
+                userId: "imageBrush",
+            }),
             headers: {
-                'Content-Type': 'application/json',
+                'Content-type': 'application/json; charset=UTF-8',
             },
-            body: JSON.stringify({ text: extractedText }),
         });
-        const data = await response.json();
-        apiResponseElement.textContent = `API Response: ${JSON.stringify(data)}`;
+
+        if (!response.status === 200) {
+            throw new Error('Failed to push this data to server');
+        } 
+        
+        apiResponseElement.textContent = 'Submitted the extract with ID : ' + msgKey; 
+        
     } catch (error) {
-        console.error('Error sending data to API:', error);
-        apiResponseElement.textContent = 'Error sending data to API';
+        console.error('Error submitting to server:', error);
+        apiResponseElement.textContent = 'Error occurred while submitting to server';
+    } finally {
+        resetUI();
     }
-    resetUI();
 });
 
 discardButton.addEventListener('click', resetUI);
