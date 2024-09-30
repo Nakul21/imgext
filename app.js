@@ -82,14 +82,16 @@ async function detectTextRegions(imageElement) {
     let boxes;
     if (Array.isArray(predictions) && predictions.length > 0) {
         boxes = await extractBoundingBoxes(predictions[0]);
+        tf.dispose([inputTensor, ...predictions]);
     } else if (predictions instanceof tf.Tensor) {
         boxes = await extractBoundingBoxes(predictions);
+        tf.dispose([inputTensor, predictions]);
     } else {
         console.error('Unexpected output from detection model:', predictions);
         boxes = [];
     }
 
-    tf.dispose([inputTensor, ...predictions]);
+    
     return boxes;
 }
 
