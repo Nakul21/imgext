@@ -46,7 +46,7 @@ async function preprocessImage(imageElement) {
     const batched = normalized.reshape([1, 224, 224, 3]);
     return batched;
   } catch (error) {
-    outputDiv.textContent = `Error in model prediction: ${error}`;
+    resultElement.textContent = `Error in model prediction: ${error}`;
   }
 }
 
