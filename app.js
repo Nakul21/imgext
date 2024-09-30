@@ -68,15 +68,23 @@ captureButton.addEventListener('click', async () => {
 
         const inputTensor = await preprocessImage(img);
         
-        // Use execute instead of executeAsync, and provide a named input
-        const predictions = recognizer.execute({'x': inputTensor});
+        // Use executeAsync and provide a named input
+        const predictions = await recognizer.executeAsync({'x': inputTensor});
         
-        // Assuming the output is a string tensor, get its values
-        const outputData = await predictions.data();
-        extractedText = outputData.join(' '); // Adjust this based on your model's output format
+        // Process the predictions based on your model's output format
+        // This is an example and may need to be adjusted
+        if (Array.isArray(predictions)) {
+            extractedText = predictions.map(tensor => tensor.dataSync()[0]).join(' ');
+        } else {
+            const outputData = await predictions.data();
+            extractedText = outputData.join(' ');
+        }
         
         resultElement.textContent = `Extracted Text: ${extractedText}`;
         toggleButtons(true);
+
+        // Don't forget to dispose of the tensors to free up memory
+        tf.dispose([inputTensor, predictions]);
     } catch (error) {
         console.error('Error during text extraction:', error);
         resultElement.textContent = 'Error occurred during text extraction';
