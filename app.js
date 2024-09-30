@@ -54,23 +54,27 @@ async function preprocessImage(imageElement) {
 }
 
 function decodeText(predictions) {
-    // This is a simple example. You might need to adjust this based on your model's specific output format.
-    const charset = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
-    let text = '';
-    for (let i = 0; i < predictions.length; i++) {
-        let max = predictions[i][0];
-        let maxIndex = 0;
-        for (let j = 1; j < predictions[i].length; j++) {
-            if (predictions[i][j] > max) {
-                max = predictions[i][j];
-                maxIndex = j;
-            }
-        }
-        if (maxIndex < charset.length) {
-            text += charset[maxIndex];
-        }
+  const VOCAB = "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ!\"#$%&'()*+,-./:;<=>?@[\\]^_`{|}~°£€¥¢฿àâéèêëîïôùûüçÀÂÉÈÊËÎÏÔÙÛÜÇ";
+  let probabilities = softmax(predictions, -1);
+  let bestPath = unstack(argMax(probabilities, -1), 0);
+  let blank = 126;
+  var words = [];
+  for (const sequence of bestPath) {
+    let collapsed = "";
+    let added = false;
+    const values = sequence.dataSync();
+    const arr = Array.from(values);
+    for (const k of arr) {
+      if (k === blank) {
+        added = false;
+      } else if (k !== blank && added === false) {
+        collapsed += VOCAB[k];
+        added = true;
+      }
     }
-    return text;
+    words.push(collapsed);
+  }
+  return words;
 }
 
 captureButton.addEventListener('click', async () => {
