@@ -116,7 +116,7 @@ function decodeText(bestPath) {
 async function getHeatMapFromImage(imageObject) {
     let tensor = await preprocessImageForDetection(imageObject);
     let prediction = await detectionModel.execute(tensor);
-    prediction = tf.squeeze(prediction);
+    prediction = tf.squeeze(prediction,0);
     if (Array.isArray(prediction)) {
         prediction = prediction[0];
     }
