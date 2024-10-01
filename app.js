@@ -62,8 +62,8 @@ async function preprocessImageForDetection(imageElement) {
 
 async function preprocessImageForRecognition(imageElement) {
     const targetSize = [32, 128];
-    let img = tf.browser.fromPixels(imageElement);
-    const [h, w] = img.shape.slice(0, 2);
+    let h = imageElement.height;
+    let w = imageElement.width;
     let resizeTarget, paddingTarget;
     const aspectRatio = targetSize[1] / targetSize[0];
     
@@ -83,13 +83,12 @@ async function preprocessImageForRecognition(imageElement) {
         ];
     }
 
-    img = tf.image.resizeNearestNeighbor(img, resizeTarget);
-    img = tf.pad(paddingTarget, 0);
-    img = img.toFloat();
-    let mean = tf.scalar(255 * REC_MEAN);
-    let std = tf.scalar(255 * REC_STD);
-    img = img.sub(mean).div(std);
-    return img.expandDims();
+    return browser
+      .fromPixels(imageElement)
+      .resizeNearestNeighbor(resize_target)
+      .pad(padding_target, 0)
+      .toFloat()
+      .expandDims();
 }
 
 function decodeText(bestPath) {
@@ -202,6 +201,9 @@ async function detectAndRecognizeText(imageElement) {
         crops.push(croppedImg);
     }
 
+    let mean = scalar(255 * REC_MEAN);
+    let std = scalar(255 * REC_STD);
+
     // Process crops in batches of 32
     const batchSize = 32;
     for (let i = 0; i < crops.length; i += batchSize) {
@@ -209,7 +211,7 @@ async function detectAndRecognizeText(imageElement) {
         const inputTensors = await Promise.all(batch.map(crop => preprocessImageForRecognition(crop)));
         const inputTensorBatch = tf.concat(inputTensors);
 
-        const predictions = await recognitionModel.executeAsync(inputTensorBatch);
+        const predictions = await recognitionModel.executeAsync(inputTensorBatch.sub(mean).div(std));
         const probabilities = tf.softmax(predictions, -1);
         const bestPath = tf.unstack(tf.argMax(probabilities, -1), 0);
         
