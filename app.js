@@ -52,7 +52,7 @@ async function setupCamera() {
 async function preprocessImageForDetection(imageElement) {
     const targetSize = [512, 512];
     let img = tf.browser.fromPixels(imageElement);
-    img = tf.image.resizeNearestNeighbor(img, targetSize);
+    img = tf.image.resizeNearestNeighbor(resize_target);
     img = img.toFloat();
     let mean = tf.scalar(255 * DET_MEAN);
     let std = tf.scalar(255 * DET_STD);
@@ -86,9 +86,9 @@ async function preprocessImageForRecognition(imageElement) {
     img = tf.image.resizeNearestNeighbor(img, resizeTarget);
     img = tf.pad(paddingTarget, 0);
     img = img.toFloat();
-    let mean = tf.scalar(255 * REC_MEAN);
-    let std = tf.scalar(255 * REC_STD);
-    img = img.sub(mean).div(std);
+    // let mean = tf.scalar(255 * REC_MEAN);
+    // let std = tf.scalar(255 * REC_STD);
+    // img = img.sub(mean).div(std);
     return img.expandDims();
 }
 
@@ -202,14 +202,12 @@ async function detectAndRecognizeText(imageElement) {
         crops.push(croppedImg);
     }
 
-    // Process crops in batches of 32
-    const batchSize = 32;
-    for (let i = 0; i < crops.length; i += batchSize) {
-        const batch = crops.slice(i, i + batchSize);
-        const inputTensors = await Promise.all(batch.map(crop => preprocessImageForRecognition(crop)));
-        const inputTensorBatch = tf.concat(inputTensors);
 
-        const predictions = await recognitionModel.executeAsync(inputTensorBatch);
+        const inputTensors = await Promise.all(crops.map(crop => preprocessImageForRecognition(crop)));
+        const inputTensorBatch = tf.concat(inputTensors);
+        let mean = scalar(255 * REC_MEAN);
+        let std = scalar(255 * REC_STD);
+        const predictions = await recognitionModel.executeAsync(inputTensorBatch.sub(mean).div(std));
         const probabilities = tf.softmax(predictions, -1);
         const bestPath = tf.unstack(tf.argMax(probabilities, -1), 0);
         
@@ -217,7 +215,7 @@ async function detectAndRecognizeText(imageElement) {
         fullText += batchText + ' ';
 
         tf.dispose([inputTensorBatch, predictions, probabilities, ...bestPath]);
-    }
+    
     
     return fullText.trim();
 }
