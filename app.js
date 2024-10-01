@@ -8,7 +8,10 @@ const VOCAB = "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ!\"
 // DOM Elements
 const video = document.getElementById('video');
 const canvas = document.getElementById('canvas');
+const previewCanvas = document.getElementById('previewCanvas');
 const captureButton = document.getElementById('captureButton');
+const confirmButton = document.getElementById('confirmButton');
+const retryButton = document.getElementById('retryButton');
 const actionButtons = document.getElementById('actionButtons');
 const sendButton = document.getElementById('sendButton');
 const discardButton = document.getElementById('discardButton');
@@ -31,7 +34,13 @@ async function loadModels() {
 }
 
 async function setupCamera() {
-    const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
+    const stream = await navigator.mediaDevices.getUserMedia({ 
+        video: { 
+            facingMode: 'environment',
+            width: { ideal: 1280 },
+            height: { ideal: 720 }
+        } 
+    });
     video.srcObject = stream;
     return new Promise((resolve) => {
         video.onloadedmetadata = () => {
@@ -41,7 +50,7 @@ async function setupCamera() {
 }
 
 async function preprocessImageForDetection(imageElement) {
-    const targetSize = [512, 512];
+    const targetSize = [256, 256]; // Reduced from 512x512 for better mobile performance
     let img = tf.browser.fromPixels(imageElement);
     img = tf.image.resizeBilinear(img, targetSize);
     img = img.toFloat();
@@ -139,8 +148,19 @@ async function detectAndRecognizeText(imageElement) {
     const heatmapCanvas = await getHeatMapFromImage(imageElement);
     const boundingBoxes = extractBoundingBoxesFromHeatmap(heatmapCanvas, size);
     
+    // Draw bounding boxes on the preview canvas
+    previewCanvas.width = imageElement.width;
+    previewCanvas.height = imageElement.height;
+    const ctx = previewCanvas.getContext('2d');
+    ctx.drawImage(imageElement, 0, 0);
+    ctx.strokeStyle = 'red';
+    ctx.lineWidth = 2;
+
     let fullText = '';
     for (const box of boundingBoxes) {
+        // Draw bounding box
+        ctx.strokeRect(box.x, box.y, box.width, box.height);
+
         const croppedCanvas = document.createElement('canvas');
         croppedCanvas.width = box.width;
         croppedCanvas.height = box.height;
@@ -168,7 +188,7 @@ async function detectAndRecognizeText(imageElement) {
     return fullText.trim();
 }
 
-captureButton.addEventListener('click', async () => {
+function handleCapture() {
     canvas.width = video.videoWidth;
     canvas.height = video.videoHeight;
     canvas.getContext('2d').drawImage(video, 0, 0, canvas.width, canvas.height);
@@ -176,26 +196,38 @@ captureButton.addEventListener('click', async () => {
     imageDataUrl = canvas.toDataURL('image/jpeg');
     resultElement.textContent = 'Processing image...';
     
-    try {
-        const img = new Image();
-        img.src = imageDataUrl;
-        await img.decode();
+    const img = new Image();
+    img.src = imageDataUrl;
+    img.onload = async () => {
+        try {
+            extractedText = await detectAndRecognizeText(img);
+            resultElement.textContent = `Extracted Text: ${extractedText}`;
+            
+            // Show preview canvas and confirmation buttons
+            previewCanvas.style.display = 'block';
+            confirmButton.style.display = 'inline-block';
+            retryButton.style.display = 'inline-block';
+            captureButton.style.display = 'none';
+        } catch (error) {
+            console.error('Error during text extraction:', error);
+            resultElement.textContent = 'Error occurred during text extraction';
+        }
+    };
+}
 
-        extractedText = await detectAndRecognizeText(img);
-        resultElement.textContent = `Extracted Text: ${extractedText}`;
-        toggleButtons(true);
+function handleConfirm() {
+    toggleButtons(true);
+    previewCanvas.style.display = 'none';
+    confirmButton.style.display = 'none';
+    retryButton.style.display = 'none';
+}
 
-    } catch (error) {
-        console.error('Error during text extraction:', error);
-        resultElement.textContent = 'Error occurred during text extraction';
-    }
-});
+function handleRetry() {
+    resetUI();
+}
 
-sendButton.addEventListener('click', async () => {
-
-    //const text = extractedText.textContent;
+async function handleSend() {
     if (!extractedText) return;
-    //sendButton.disabled = true;
     apiResponseElement.textContent = 'Submitting...';
     let msgKey = new Date().getTime();
     try {
@@ -211,7 +243,7 @@ sendButton.addEventListener('click', async () => {
             },
         });
 
-        if (!response.status === 200) {
+        if (response.status !== 200) {
             throw new Error('Failed to push this data to server');
         } 
         
@@ -223,9 +255,7 @@ sendButton.addEventListener('click', async () => {
     } finally {
         resetUI();
     }
-});
-
-discardButton.addEventListener('click', resetUI);
+}
 
 function toggleButtons(showActionButtons) {
     captureButton.style.display = showActionButtons ? 'none' : 'block';
@@ -239,10 +269,15 @@ function resetUI() {
     imageDataUrl = '';
     extractedText = '';
     clearCanvas();
+    previewCanvas.style.display = 'none';
+    confirmButton.style.display = 'none';
+    retryButton.style.display = 'none';
+    captureButton.style.display = 'block';
 }
 
 function clearCanvas() {
     canvas.getContext('2d').clearRect(0, 0, canvas.width, canvas.height);
+    previewCanvas.getContext('2d').clearRect(0, 0, previewCanvas.width, previewCanvas.height);
 }
 
 async function init() {
@@ -262,6 +297,19 @@ function loadOpenCV() {
     });
 }
 
+// Event Listeners
+captureButton.addEventListener('click', handleCapture);
+captureButton.addEventListener('touchstart', handleCapture);
+confirmButton.addEventListener('click', handleConfirm);
+confirmButton.addEventListener('touchstart', handleConfirm);
+retryButton.addEventListener('click', handleRetry);
+retryButton.addEventListener('touchstart', handleRetry);
+sendButton.addEventListener('click', handleSend);
+sendButton.addEventListener('touchstart', handleSend);
+discardButton.addEventListener('click', resetUI);
+discardButton.addEventListener('touchstart', resetUI);
+
+// Initialize the application
 init();
 
 // Service Worker Registration
@@ -274,4 +322,4 @@ if ('serviceWorker' in navigator) {
                 console.log('ServiceWorker registration failed: ', err);
             });
     });
-                }
+    }
