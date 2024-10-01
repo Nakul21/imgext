@@ -50,7 +50,7 @@ async function setupCamera() {
 }
 
 async function preprocessImageForDetection(imageElement) {
-    const targetSize = [256, 256]; // Reduced from 512x512 for better mobile performance
+    const targetSize = [512, 512]; // Reduced from 512x512 for better mobile performance
     let img = tf.browser.fromPixels(imageElement);
     img = tf.image.resizeBilinear(img, targetSize);
     img = img.toFloat();
