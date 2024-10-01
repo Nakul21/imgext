@@ -115,8 +115,11 @@ function decodeText(bestPath) {
 
 async function getHeatMapFromImage(imageObject) {
     let tensor = await preprocessImageForDetection(imageObject);
-    let prediction = await detectionModel.predict(tensor);
+    let prediction = await detectionModel.execute(tensor);
     prediction = tf.squeeze(prediction);
+    if (Array.isArray(prediction)) {
+        prediction = prediction[0];
+    }
     const heatmapCanvas = document.createElement('canvas');
     heatmapCanvas.width = imageObject.width;
     heatmapCanvas.height = imageObject.height;
@@ -353,4 +356,4 @@ if ('serviceWorker' in navigator) {
                 console.log('ServiceWorker registration failed: ', err);
             });
     });
-}
+    }
