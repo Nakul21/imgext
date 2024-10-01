@@ -50,14 +50,14 @@ async function setupCamera() {
 }
 
 async function preprocessImageForDetection(imageElement) {
-    const targetSize = [512, 512];
-    let img = tf.browser.fromPixels(imageElement);
-    img = tf.image.resizeNearestNeighbor(resize_target);
-    img = img.toFloat();
-    let mean = tf.scalar(255 * DET_MEAN);
-    let std = tf.scalar(255 * DET_STD);
-    img = img.sub(mean).div(std);
-    return img.expandDims();
+      const targetSize = [512, 512];
+      let tensor = browser
+        .fromPixels(imageObject)
+        .resizeNearestNeighbor(size)
+        .toFloat();
+      let mean = scalar(255 * DET_MEAN);
+      let std = scalar(255 * DET_STD);
+      return tensor.sub(mean).div(std).expandDims();
 }
 
 async function preprocessImageForRecognition(imageElement) {
@@ -83,13 +83,12 @@ async function preprocessImageForRecognition(imageElement) {
         ];
     }
 
-    img = tf.image.resizeNearestNeighbor(img, resizeTarget);
-    img = tf.pad(paddingTarget, 0);
-    img = img.toFloat();
-    // let mean = tf.scalar(255 * REC_MEAN);
-    // let std = tf.scalar(255 * REC_STD);
-    // img = img.sub(mean).div(std);
-    return img.expandDims();
+    return browser
+      .fromPixels(imageObject)
+      .resizeNearestNeighbor(resize_target)
+      .pad(padding_target, 0)
+      .toFloat()
+      .expandDims();
 }
 
 function decodeText(bestPath) {
