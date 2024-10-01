@@ -201,8 +201,8 @@ async function detectAndRecognizeText(imageElement) {
         crops.push(croppedImg);
     }
 
-    let mean = scalar(255 * REC_MEAN);
-    let std = scalar(255 * REC_STD);
+    let mean = tf.scalar(255 * REC_MEAN);
+    let std = tf.scalar(255 * REC_STD);
 
     // Process crops in batches of 32
     const batchSize = 32;
