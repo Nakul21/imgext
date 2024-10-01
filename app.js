@@ -50,9 +50,9 @@ async function setupCamera() {
 }
 
 async function preprocessImageForDetection(imageElement) {
-    const targetSize = [512, 512]; // Reduced from 512x512 for better mobile performance
+    const targetSize = [512, 512];
     let img = tf.browser.fromPixels(imageElement);
-    img = tf.image.resizeBilinear(img, targetSize);
+    img = tf.image.resizeNearestNeighbor(img, targetSize);
     img = img.toFloat();
     let mean = tf.scalar(255 * DET_MEAN);
     let std = tf.scalar(255 * DET_STD);
@@ -63,7 +63,28 @@ async function preprocessImageForDetection(imageElement) {
 async function preprocessImageForRecognition(imageElement) {
     const targetSize = [32, 128];
     let img = tf.browser.fromPixels(imageElement);
-    img = tf.image.resizeBilinear(img, targetSize);
+    const [h, w] = img.shape.slice(0, 2);
+    let resizeTarget, paddingTarget;
+    const aspectRatio = targetSize[1] / targetSize[0];
+    
+    if (aspectRatio * h > w) {
+        resizeTarget = [targetSize[0], Math.round((targetSize[0] * w) / h)];
+        paddingTarget = [
+            [0, 0],
+            [0, targetSize[1] - resizeTarget[1]],
+            [0, 0]
+        ];
+    } else {
+        resizeTarget = [Math.round((targetSize[1] * h) / w), targetSize[1]];
+        paddingTarget = [
+            [0, targetSize[0] - resizeTarget[0]],
+            [0, 0],
+            [0, 0]
+        ];
+    }
+
+    img = tf.image.resizeNearestNeighbor(img, resizeTarget);
+    img = tf.pad(img, paddingTarget);
     img = img.toFloat();
     let mean = tf.scalar(255 * REC_MEAN);
     let std = tf.scalar(255 * REC_STD);
@@ -118,7 +139,7 @@ function extractBoundingBoxesFromHeatmap(heatmapCanvas, size) {
     for (let i = 0; i < contours.size(); ++i) {
         const contourBoundingBox = cv.boundingRect(contours.get(i));
         if (contourBoundingBox.width > 2 && contourBoundingBox.height > 2) {
-            boundingBoxes.push(transformBoundingBox(contourBoundingBox, i, size));
+            boundingBoxes.unshift(transformBoundingBox(contourBoundingBox, i, size));
         }
     }
     
@@ -157,6 +178,8 @@ async function detectAndRecognizeText(imageElement) {
     ctx.lineWidth = 2;
 
     let fullText = '';
+    const crops = [];
+
     for (const box of boundingBoxes) {
         // Draw bounding box
         ctx.strokeRect(box.x, box.y, box.width, box.height);
@@ -173,16 +196,24 @@ async function detectAndRecognizeText(imageElement) {
         const croppedImg = new Image();
         croppedImg.src = croppedCanvas.toDataURL('image/jpeg');
         await croppedImg.decode();
+        crops.push(croppedImg);
+    }
 
-        const inputTensor = await preprocessImageForRecognition(croppedImg);
-        const predictions = await recognitionModel.executeAsync(inputTensor);
+    // Process crops in batches of 32
+    const batchSize = 32;
+    for (let i = 0; i < crops.length; i += batchSize) {
+        const batch = crops.slice(i, i + batchSize);
+        const inputTensors = await Promise.all(batch.map(crop => preprocessImageForRecognition(crop)));
+        const inputTensorBatch = tf.concat(inputTensors);
+
+        const predictions = await recognitionModel.executeAsync(inputTensorBatch);
         const probabilities = tf.softmax(predictions, -1);
         const bestPath = tf.unstack(tf.argMax(probabilities, -1), 0);
         
-        const text = decodeText(bestPath);
-        fullText += text + ' ';
+        const batchText = decodeText(bestPath);
+        fullText += batchText + ' ';
 
-        tf.dispose([inputTensor, predictions, probabilities, ...bestPath]);
+        tf.dispose([inputTensorBatch, predictions, probabilities, ...bestPath]);
     }
     
     return fullText.trim();
@@ -322,4 +353,4 @@ if ('serviceWorker' in navigator) {
                 console.log('ServiceWorker registration failed: ', err);
             });
     });
-    }
+}
