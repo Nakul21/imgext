@@ -2,28 +2,28 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>Text Extraction App</title>
     <link rel="stylesheet" href="styles.css">
-    <link rel="manifest" href="manifest.json">
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@3.11.0/dist/tf.min.js"></script>
 </head>
 <body>
     <div class="app-container">
         <video id="video" autoplay playsinline></video>
         <canvas id="canvas" style="display: none;"></canvas>
+        <canvas id="previewCanvas" style="display: none;"></canvas>
         <div class="controls">
-            <button id="captureButton" class="btn">Capture</button>
+            <button id="captureButton">Capture</button>
+            <button id="confirmButton" style="display: none;">Confirm</button>
+            <button id="retryButton" style="display: none;">Retry</button>
             <div id="actionButtons" style="display: none;">
-                <button id="sendButton" class="btn">Send</button>
-                <button id="discardButton" class="btn">Discard</button>
+                <button id="sendButton">Send</button>
+                <button id="discardButton">Discard</button>
             </div>
         </div>
         <div id="result" class="result"></div>
         <div id="apiResponse" class="api-response"></div>
     </div>
-
-    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs"></script>
-    <script type="module" src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-converter"></script>
     <script src="app.js"></script>
 </body>
 </html>
