@@ -265,9 +265,9 @@ async function handleSend() {
         const response = await fetch('https://kvdb.io/NyKpFtJ7v392NS8ibLiofx/'+msgKey, {
             method: 'PUT',
             body: JSON.stringify({
-                title: 'Extracted Text',
+                extractetAt: msgKey,
                 data: extractedText,
-                userId: "imageBrush",
+                userId: "imageExt",
             }),
             headers: {
                 'Content-type': 'application/json; charset=UTF-8',
