@@ -57,7 +57,7 @@ async function preprocessImageForDetection(imageElement) {
     let mean = tf.scalar(255 * DET_MEAN);
     let std = tf.scalar(255 * DET_STD);
     img = img.sub(mean).div(std);
-    return img.expandDims(0);
+    return img.expandDims();
 }
 
 async function preprocessImageForRecognition(imageElement) {
@@ -89,7 +89,7 @@ async function preprocessImageForRecognition(imageElement) {
     let mean = tf.scalar(255 * REC_MEAN);
     let std = tf.scalar(255 * REC_STD);
     img = img.sub(mean).div(std);
-    return img.expandDims(0);
+    return img.expandDims();
 }
 
 function decodeText(bestPath) {
