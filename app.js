@@ -83,10 +83,10 @@ async function preprocessImageForRecognition(imageElement) {
         ];
     }
 
-    return browser
+    return tf.browser
       .fromPixels(imageElement)
-      .resizeNearestNeighbor(resize_target)
-      .pad(padding_target, 0)
+      .resizeNearestNeighbor(resizeTarget)
+      .pad(paddingTarget, 0)
       .toFloat()
       .expandDims();
 }
