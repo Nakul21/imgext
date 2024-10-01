@@ -84,7 +84,7 @@ async function preprocessImageForRecognition(imageElement) {
     }
 
     img = tf.image.resizeNearestNeighbor(img, resizeTarget);
-    img = tf.pad(img, paddingTarget);
+    img = tf.pad(paddingTarget, 0);
     img = img.toFloat();
     let mean = tf.scalar(255 * REC_MEAN);
     let std = tf.scalar(255 * REC_STD);
