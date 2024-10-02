@@ -160,7 +160,8 @@ function getRandomColor()
 
 
 async function detectAndRecognizeText(imageElement) {
-    const size = [imageElement.height, imageElement.width];
+    //const size = [imageElement.height, imageElement.width];
+    const size = [512, 512];
     const heatmapCanvas = await getHeatMapFromImage(imageElement);
     const boundingBoxes = extractBoundingBoxesFromHeatmap(heatmapCanvas, size);
     
