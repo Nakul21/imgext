@@ -51,13 +51,13 @@ async function setupCamera() {
 
 async function preprocessImageForDetection(imageElement) {
     const targetSize = [512, 512];
-    let img = tf.browser.fromPixels(imageElement);
-    img = tf.image.resizeNearestNeighbor(img, targetSize);
-    img = img.toFloat();
+    let tensor = tf.browser
+        .fromPixels(imageElement)
+        .resizeNearestNeighbor(targetSize)
+        .toFloat();
     let mean = tf.scalar(255 * DET_MEAN);
     let std = tf.scalar(255 * DET_STD);
-    img = img.sub(mean).div(std);
-    return img.expandDims();
+    return tensor.sub(mean).div(std).expandDims();
 }
 
 async function preprocessImageForRecognition(imageElement) {
