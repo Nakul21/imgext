@@ -120,11 +120,11 @@ async function getHeatMapFromImage(imageObject) {
         prediction = prediction[0];
     }
     const heatmapCanvas = document.createElement('canvas');
-    heatmapCanvas.width = 512;
-    heatmapCanvas.height = 512;
+    heatmapCanvas.width = imageObject.width;
+    heatmapCanvas.height = imageObject.height;
     await tf.browser.toPixels(prediction, heatmapCanvas);
-    //tensor.dispose();
-    //prediction.dispose();
+    tensor.dispose();
+    prediction.dispose();
     console.log('getHeatMapFromImage completed ...',heatmapCanvas)
     return heatmapCanvas;
 }
@@ -164,9 +164,8 @@ async function detectAndRecognizeText(imageElement) {
     //const size = [imageElement.height, imageElement.width];
     const size = [512, 512];
     const heatmapCanvas = await getHeatMapFromImage(imageElement);
-    console.log('heatmapCanvas', heatmapCanvas);
     const boundingBoxes = extractBoundingBoxesFromHeatmap(heatmapCanvas, size);
-    console.log('extractBoundingBoxesFromHeatmap', extractBoundingBoxesFromHeatmap);
+    console.log('extractBoundingBoxesFromHeatmap', boundingBoxes);
     // Draw bounding boxes on the preview canvas
     previewCanvas.width = imageElement.width;
     previewCanvas.height = imageElement.height;
@@ -260,10 +259,6 @@ function transformBoundingBox(contour, id, size) {
     
     return {
         id,
-        x: p1,
-        y: p3,
-        width: p2 - p1,
-        height: p4 - p3,
         config: {
             stroke: getRandomColor() // You'll need to implement or import this function
         },
