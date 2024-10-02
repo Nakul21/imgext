@@ -120,11 +120,12 @@ async function getHeatMapFromImage(imageObject) {
         prediction = prediction[0];
     }
     const heatmapCanvas = document.createElement('canvas');
-    heatmapCanvas.width = imageObject.width;
-    heatmapCanvas.height = imageObject.height;
+    heatmapCanvas!.width = imageObject.width;
+    heatmapCanvas!.height = imageObject.height;
     await tf.browser.toPixels(prediction, heatmapCanvas);
-    tensor.dispose();
-    prediction.dispose();
+    //tensor.dispose();
+    //prediction.dispose();
+    console.log('getHeatMapFromImage completed ...',heatmapCanvas)
     return heatmapCanvas;
 }
 
@@ -163,8 +164,9 @@ async function detectAndRecognizeText(imageElement) {
     //const size = [imageElement.height, imageElement.width];
     const size = [512, 512];
     const heatmapCanvas = await getHeatMapFromImage(imageElement);
+    console.log('heatmapCanvas', heatmapCanvas);
     const boundingBoxes = extractBoundingBoxesFromHeatmap(heatmapCanvas, size);
-    
+    console.log('extractBoundingBoxesFromHeatmap', extractBoundingBoxesFromHeatmap);
     // Draw bounding boxes on the preview canvas
     previewCanvas.width = imageElement.width;
     previewCanvas.height = imageElement.height;
