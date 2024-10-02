@@ -131,7 +131,7 @@ async function getHeatMapFromImage(imageObject) {
 
 function extractBoundingBoxesFromHeatmap(heatmapCanvas, size) {
     let src = cv.imread(heatmapCanvas);
-    cv.cvtColor(src, src, cv.COLOR_RGBA2GRAY);
+    cv.cvtColor(src, src, cv.COLOR_RGBA2GRAY,0);
     cv.threshold(src, src, 77, 255, cv.THRESH_BINARY);
     cv.morphologyEx(src, src, cv.MORPH_OPEN, cv.Mat.ones(2, 2, cv.CV_8U));
     let contours = new cv.MatVector();
