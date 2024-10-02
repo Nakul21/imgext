@@ -120,8 +120,8 @@ async function getHeatMapFromImage(imageObject) {
         prediction = prediction[0];
     }
     const heatmapCanvas = document.createElement('canvas');
-    heatmapCanvas!.width = imageObject.width;
-    heatmapCanvas!.height = imageObject.height;
+    heatmapCanvas.width = 512;
+    heatmapCanvas.height = 512;
     await tf.browser.toPixels(prediction, heatmapCanvas);
     //tensor.dispose();
     //prediction.dispose();
