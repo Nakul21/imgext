@@ -157,25 +157,7 @@ function getRandomColor()
     return randomColor;
 }
 
-function transformBoundingBox(contour, id, size) {
-    let offset = (contour.width * contour.height * 1.8) / (2 * (contour.width + contour.height));
-    const p1 = Math.max(0, Math.min(contour.x - offset, size[1])) - 1;
-    const p2 = Math.max(0, Math.min(p1 + contour.width + 2 * offset, size[1])) - 1;
-    const p3 = Math.max(0, Math.min(contour.y - offset, size[0])) - 1;
-    const p4 = Math.max(0, Math.min(p3 + contour.height + 2 * offset, size[0])) - 1;
-    return {
-    id,
-    config: {
-      stroke: getRandomColor(),
-    },
-    coordinates: [
-      [p1 / size[1], p3 / size[0]],
-      [p2 / size[1], p3 / size[0]],
-      [p2 / size[1], p4 / size[0]],
-      [p1 / size[1], p4 / size[0]],
-    ],
-  };
-}
+
 
 async function detectAndRecognizeText(imageElement) {
     const size = [imageElement.height, imageElement.width];
@@ -260,6 +242,40 @@ function handleCapture() {
             resultElement.textContent = 'Error occurred during text extraction';
         }
     };
+}
+
+function clamp(number, size) {
+    return Math.max(0, Math.min(number, size));
+}
+
+function transformBoundingBox(contour, id, size) {
+    let offset = (contour.width * contour.height * 1.8) / (2 * (contour.width + contour.height));
+    const p1 = clamp(contour.x - offset, size[1]) - 1;
+    const p2 = clamp(p1 + contour.width + 2 * offset, size[1]) - 1;
+    const p3 = clamp(contour.y - offset, size[0]) - 1;
+    const p4 = clamp(p3 + contour.height + 2 * offset, size[0]) - 1;
+    
+    return {
+        id,
+        x: p1,
+        y: p3,
+        width: p2 - p1,
+        height: p4 - p3,
+        config: {
+            stroke: getRandomColor() // You'll need to implement or import this function
+        },
+        coordinates: [
+            [p1 / size[1], p3 / size[0]],
+            [p2 / size[1], p3 / size[0]],
+            [p2 / size[1], p4 / size[0]],
+            [p1 / size[1], p4 / size[0]],
+        ]
+    };
+}
+
+// You may need to implement this function if it's not already available
+function getRandomColor() {
+    return '#' + Math.floor(Math.random()*16777215).toString(16);
 }
 
 function handleConfirm() {
