@@ -50,7 +50,7 @@ async function setupCamera() {
 }
 
 function preprocessImageForDetection(imageElement) {
-        const maxSize = 2048; // Set a maximum size that works for most mobile devices
+    const maxSize = 2048; // Set a maximum size that works for most mobile devices
     const originalWidth = imageElement.width;
     const originalHeight = imageElement.height;
     let newWidth, newHeight;
@@ -244,7 +244,7 @@ async function detectAndRecognizeText(imageElement) {
     }
 
     // Process crops in batches
-    const batchSize = 32;
+    const batchSize = isMobile() ? 4 : 32;
     for (let i = 0; i < crops.length; i += batchSize) {
         const batch = crops.slice(i, i + batchSize);
         const inputTensor = preprocessImageForRecognition(batch);
