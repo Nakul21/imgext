@@ -60,44 +60,49 @@ async function preprocessImageForDetection(imageElement) {
     return tensor.sub(mean).div(std).expandDims();
 }
 
-async function preprocessImageForRecognition(imageElement) {
+function preprocessImageForRecognition(crops, size) {
     const targetSize = [32, 128];
-    let h = imageElement.height;
-    let w = imageElement.width;
-    let resizeTarget, paddingTarget;
-    const aspectRatio = targetSize[1] / targetSize[0];
-    
-    if (aspectRatio * h > w) {
-        resizeTarget = [targetSize[0], Math.round((targetSize[0] * w) / h)];
-        paddingTarget = [
-            [0, 0],
-            [0, targetSize[1] - resizeTarget[1]],
-            [0, 0]
-        ];
-    } else {
-        resizeTarget = [Math.round((targetSize[1] * h) / w), targetSize[1]];
-        paddingTarget = [
-            [0, targetSize[0] - resizeTarget[0]],
-            [0, 0],
-            [0, 0]
-        ];
-    }
-
-    return tf.tidy(() => {
-        return tf.browser
-            .fromPixels(imageElement)
-            .resizeNearestNeighbor(resizeTarget)
-            .pad(paddingTarget, 0)
-            .toFloat()
-            .expandDims();
+    const list = crops.map((imageObject) => {
+        let h = imageObject.height;
+        let w = imageObject.width;
+        let resizeTarget, paddingTarget;
+        let aspectRatio = targetSize[1] / targetSize[0];
+        if (aspectRatio * h > w) {
+            resizeTarget = [targetSize[0], Math.round((targetSize[0] * w) / h)];
+            paddingTarget = [
+                [0, 0],
+                [0, targetSize[1] - Math.round((targetSize[0] * w) / h)],
+                [0, 0],
+            ];
+        } else {
+            resizeTarget = [Math.round((targetSize[1] * h) / w), targetSize[1]];
+            paddingTarget = [
+                [0, targetSize[0] - Math.round((targetSize[1] * h) / w)],
+                [0, 0],
+                [0, 0],
+            ];
+        }
+        return tf.tidy(() => {
+            return tf.browser
+                .fromPixels(imageObject)
+                .resizeNearestNeighbor(resizeTarget)
+                .pad(paddingTarget, 0)
+                .toFloat()
+                .expandDims();
+        });
     });
+    const tensor = tf.concat(list);
+    let mean = tf.scalar(255 * REC_MEAN);
+    let std = tf.scalar(255 * REC_STD);
+    return tensor.sub(mean).div(std);
 }
+
 
 function decodeText(bestPath) {
     let blank = 126;
-    var words = [];
+    var collapsed = "";
     for (const sequence of bestPath) {
-        let collapsed = "";
+    
         let added = false;
         const values = sequence.dataSync();
         const arr = Array.from(values);
@@ -109,9 +114,8 @@ function decodeText(bestPath) {
                 added = true;
             }
         }
-        words.push(collapsed);
     }
-    return words.join(' ');
+    return collapsed;
 }
 
 async function getHeatMapFromImage(imageObject) {
@@ -208,7 +212,7 @@ async function detectAndRecognizeText(imageElement) {
         const bestPath = tf.unstack(tf.argMax(probabilities, -1), 0);
         
         const words = decodeText(bestPath);
-        fullText += words.join(' ') + ' ';
+        fullText += words + ' ';
 
         tf.dispose([inputTensorBatch, predictions, probabilities, ...bestPath]);
     }
