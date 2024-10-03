@@ -50,7 +50,7 @@ async function setupCamera() {
 }
 
 function preprocessImageForDetection(imageElement) {
-    const maxSize = isMobile() ? 1024 : 2048; 
+    const maxSize = isMobile() ? 512 : 2048; 
     const originalWidth = imageElement.width;
     const originalHeight = imageElement.height;
     let newWidth, newHeight;
@@ -201,11 +201,20 @@ function extractBoundingBoxesFromHeatmap(heatmapCanvas, size) {
     return boundingBoxes;
 }
 
+function useCPU() {
+    tf.setBackend('cpu');
+    console.log('Switched to CPU backend');
+}
+
 function getRandomColor() {
     return '#' + Math.floor(Math.random()*16777215).toString(16);
 }
 
 async function detectAndRecognizeText(imageElement) {
+    
+    if (isMobile()) {
+        useCPU(); // Switch to CPU for mobile devices
+    }
     const size = [512, 512];
     const heatmapCanvas = await getHeatMapFromImage(imageElement);
     const boundingBoxes = extractBoundingBoxesFromHeatmap(heatmapCanvas, size);
@@ -218,6 +227,8 @@ async function detectAndRecognizeText(imageElement) {
 
     let fullText = '';
     const crops = [];
+
+    try {
 
     for (const box of boundingBoxes) {
         // Draw bounding box
@@ -262,6 +273,15 @@ async function detectAndRecognizeText(imageElement) {
     }
     
     return fullText.trim();
+    
+    } catch(error) {
+        
+        console.error('Error in detectAndRecognizeText:', error);
+        throw error;
+   
+    } finally {
+        tf.disposeVariables(); // Clean up any remaining tensors
+    }
 }
 
 function handleCapture() {
@@ -297,6 +317,9 @@ function handleCapture() {
         } catch (error) {
             console.error('Error during text extraction:', error);
             resultElement.textContent = 'Error occurred during text extraction';
+        }
+        finally {
+            tf.engine().endScope(); // Ensure all tensors are cleaned up
         }
     };
 }
@@ -371,10 +394,23 @@ function clearCanvas() {
     previewCanvas.getContext('2d').clearRect(0, 0, previewCanvas.width, previewCanvas.height);
 }
 
+function monitorMemoryUsage() {
+    setInterval(() => {
+        const info = tf.memory();
+        console.log('Memory usage:', {
+            numTensors: info.numTensors,
+            numDataBuffers: info.numDataBuffers,
+            unreliable: info.unreliable,
+            reasons: info.reasons
+        });
+    }, 5000);
+}
+
 async function init() {
     await loadModels();
     await loadOpenCV();
     await setupCamera();
+    monitorMemoryUsage();
     captureButton.disabled = false;
     captureButton.textContent = 'Capture';
 }
