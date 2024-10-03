@@ -50,7 +50,7 @@ async function setupCamera() {
 }
 
 function preprocessImageForDetection(imageElement) {
-    const maxSize = 2048; // Set a maximum size that works for most mobile devices
+    const maxSize = isMobile() ? 1024 : 2048; 
     const originalWidth = imageElement.width;
     const originalHeight = imageElement.height;
     let newWidth, newHeight;
@@ -207,7 +207,7 @@ async function detectAndRecognizeText(imageElement) {
     const size = [512, 512];
     const heatmapCanvas = await getHeatMapFromImage(imageElement);
     const boundingBoxes = extractBoundingBoxesFromHeatmap(heatmapCanvas, size);
-    console.log('extractBoundingBoxesFromHeatmap', boundingBoxes);
+    // console.log('extractBoundingBoxesFromHeatmap', boundingBoxes);
 
     previewCanvas.width = imageElement.width;
     previewCanvas.height = imageElement.height;
@@ -244,7 +244,7 @@ async function detectAndRecognizeText(imageElement) {
     }
 
     // Process crops in batches
-    const batchSize = isMobile() ? 4 : 32;
+    const batchSize = isMobile() ? 2 : 32;
     for (let i = 0; i < crops.length; i += batchSize) {
         const batch = crops.slice(i, i + batchSize);
         const inputTensor = preprocessImageForRecognition(batch);
@@ -267,7 +267,7 @@ function handleCapture() {
     canvas.height = video.videoHeight;
     canvas.getContext('2d').drawImage(video, 0, 0, canvas.width, canvas.height);
 
-    const maxSize = 2048;
+    const maxSize = isMobile() ? 1024 : 2048;;
     let scaleFactor = 1;
     if (canvas.width > maxSize || canvas.height > maxSize) {
         scaleFactor = maxSize / Math.max(canvas.width, canvas.height);
@@ -300,6 +300,7 @@ function handleCapture() {
 }
 
 function isMobile() {
+    console.log('navigator.userAgent',navigator.userAgent);
     return /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
 }
 
