@@ -49,7 +49,7 @@ async function setupCamera() {
     });
 }
 
-async function preprocessImageForDetection(imageElement) {
+function preprocessImageForDetection(imageElement) {
     const targetSize = [512, 512];
     let tensor = tf.browser
         .fromPixels(imageElement)
@@ -60,11 +60,11 @@ async function preprocessImageForDetection(imageElement) {
     return tensor.sub(mean).div(std).expandDims();
 }
 
-function preprocessImageForRecognition(crops, size) {
+function preprocessImageForRecognition(crops) {
     const targetSize = [32, 128];
-    const list = crops.map((imageObject) => {
-        let h = imageObject.height;
-        let w = imageObject.width;
+    const tensors = crops.map((crop) => {
+        let h = crop.height;
+        let w = crop.width;
         let resizeTarget, paddingTarget;
         let aspectRatio = targetSize[1] / targetSize[0];
         if (aspectRatio * h > w) {
@@ -84,34 +84,32 @@ function preprocessImageForRecognition(crops, size) {
         }
         return tf.tidy(() => {
             return tf.browser
-                .fromPixels(imageObject)
+                .fromPixels(crop)
                 .resizeNearestNeighbor(resizeTarget)
                 .pad(paddingTarget, 0)
                 .toFloat()
                 .expandDims();
         });
     });
-    const tensor = tf.concat(list);
+    const tensor = tf.concat(tensors);
     let mean = tf.scalar(255 * REC_MEAN);
     let std = tf.scalar(255 * REC_STD);
     return tensor.sub(mean).div(std);
 }
 
-
 function decodeText(bestPath) {
-    let blank = 126;
-    var collapsed = "";
+    const blank = 126;
+    let collapsed = "";
+    let lastChar = null;
+
     for (const sequence of bestPath) {
-    
-        let added = false;
         const values = sequence.dataSync();
-        const arr = Array.from(values);
-        for (const k of arr) {
-            if (k === blank) {
-                added = false;
-            } else if (k !== blank && added === false) {
+        for (const k of values) {
+            if (k !== blank && k !== lastChar) {
                 collapsed += VOCAB[k];
-                added = true;
+                lastChar = k;
+            } else if (k === blank) {
+                lastChar = null;
             }
         }
     }
@@ -119,9 +117,9 @@ function decodeText(bestPath) {
 }
 
 async function getHeatMapFromImage(imageObject) {
-    let tensor = await preprocessImageForDetection(imageObject);
+    let tensor = preprocessImageForDetection(imageObject);
     let prediction = await detectionModel.execute(tensor);
-    prediction = tf.squeeze(prediction,0);
+    prediction = tf.squeeze(prediction, 0);
     if (Array.isArray(prediction)) {
         prediction = prediction[0];
     }
@@ -131,13 +129,36 @@ async function getHeatMapFromImage(imageObject) {
     await tf.browser.toPixels(prediction, heatmapCanvas);
     tensor.dispose();
     prediction.dispose();
-    console.log('getHeatMapFromImage completed ...',heatmapCanvas)
     return heatmapCanvas;
+}
+
+function clamp(number, size) {
+    return Math.max(0, Math.min(number, size));
+}
+
+function transformBoundingBox(contour, id, size) {
+    let offset = (contour.width * contour.height * 1.8) / (2 * (contour.width + contour.height));
+    const p1 = clamp(contour.x - offset, size[1]) - 1;
+    const p2 = clamp(p1 + contour.width + 2 * offset, size[1]) - 1;
+    const p3 = clamp(contour.y - offset, size[0]) - 1;
+    const p4 = clamp(p3 + contour.height + 2 * offset, size[0]) - 1;
+    return {
+        id,
+        config: {
+            stroke: getRandomColor(),
+        },
+        coordinates: [
+            [p1 / size[1], p3 / size[0]],
+            [p2 / size[1], p3 / size[0]],
+            [p2 / size[1], p4 / size[0]],
+            [p1 / size[1], p4 / size[0]],
+        ],
+    };
 }
 
 function extractBoundingBoxesFromHeatmap(heatmapCanvas, size) {
     let src = cv.imread(heatmapCanvas);
-    cv.cvtColor(src, src, cv.COLOR_RGBA2GRAY,0);
+    cv.cvtColor(src, src, cv.COLOR_RGBA2GRAY, 0);
     cv.threshold(src, src, 77, 255, cv.THRESH_BINARY);
     cv.morphologyEx(src, src, cv.MORPH_OPEN, cv.Mat.ones(2, 2, cv.CV_8U));
     let contours = new cv.MatVector();
@@ -158,10 +179,8 @@ function extractBoundingBoxesFromHeatmap(heatmapCanvas, size) {
     return boundingBoxes;
 }
 
-function getRandomColor()
-{
-    var randomColor = '#'+Math.floor(Math.random()*16777215).toString(16);
-    return randomColor;
+function getRandomColor() {
+    return '#' + Math.floor(Math.random()*16777215).toString(16);
 }
 
 async function detectAndRecognizeText(imageElement) {
@@ -192,35 +211,36 @@ async function detectAndRecognizeText(imageElement) {
         ctx.strokeRect(x, y, width, height);
 
         // Create crop
-        const crop = {
-            id: box.id.toString(), // Convert to string to match TypeScript implementation
-            crop: imageElement,
-            color: box.config.stroke
-        };
-        crops.push(crop);
+        const croppedCanvas = document.createElement('canvas');
+        croppedCanvas.width = width;
+        croppedCanvas.height = height;
+        croppedCanvas.getContext('2d').drawImage(
+            imageElement, 
+            x, y, width, height,
+            0, 0, width, height
+        );
+
+        crops.push(croppedCanvas);
     }
 
     // Process crops in batches
     const batchSize = 32;
     for (let i = 0; i < crops.length; i += batchSize) {
         const batch = crops.slice(i, i + batchSize);
-        const inputTensors = await Promise.all(batch.map(crop => preprocessImageForRecognition(crop.crop)));
-        const inputTensorBatch = tf.concat(inputTensors);
+        const inputTensor = preprocessImageForRecognition(batch);
 
-        const predictions = await recognitionModel.executeAsync(inputTensorBatch);
+        const predictions = await recognitionModel.executeAsync(inputTensor);
         const probabilities = tf.softmax(predictions, -1);
         const bestPath = tf.unstack(tf.argMax(probabilities, -1), 0);
         
         const words = decodeText(bestPath);
         fullText += words + ' ';
 
-        tf.dispose([inputTensorBatch, predictions, probabilities, ...bestPath]);
+        tf.dispose([inputTensor, predictions, probabilities, ...bestPath]);
     }
     
     return fullText.trim();
 }
-
-
 
 function handleCapture() {
     canvas.width = video.videoWidth;
@@ -247,36 +267,6 @@ function handleCapture() {
             resultElement.textContent = 'Error occurred during text extraction';
         }
     };
-}
-
-function clamp(number, size) {
-    return Math.max(0, Math.min(number, size));
-}
-
-function transformBoundingBox(contour, id, size) {
-    let offset = (contour.width * contour.height * 1.8) / (2 * (contour.width + contour.height));
-    const p1 = clamp(contour.x - offset, size[1]) - 1;
-    const p2 = clamp(p1 + contour.width + 2 * offset, size[1]) - 1;
-    const p3 = clamp(contour.y - offset, size[0]) - 1;
-    const p4 = clamp(p3 + contour.height + 2 * offset, size[0]) - 1;
-    
-    return {
-        id,
-        config: {
-            stroke: getRandomColor() // You'll need to implement or import this function
-        },
-        coordinates: [
-            [p1 / size[1], p3 / size[0]],
-            [p2 / size[1], p3 / size[0]],
-            [p2 / size[1], p4 / size[0]],
-            [p1 / size[1], p4 / size[0]],
-        ]
-    };
-}
-
-// You may need to implement this function if it's not already available
-function getRandomColor() {
-    return '#' + Math.floor(Math.random()*16777215).toString(16);
 }
 
 function handleConfirm() {
@@ -386,4 +376,4 @@ if ('serviceWorker' in navigator) {
                 console.log('ServiceWorker registration failed: ', err);
             });
     });
-    }
+}
