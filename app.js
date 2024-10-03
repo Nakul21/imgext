@@ -289,7 +289,7 @@ function handleCapture() {
     canvas.height = video.videoHeight;
     canvas.getContext('2d').drawImage(video, 0, 0, canvas.width, canvas.height);
 
-    const maxSize = isMobile() ? 1024 : 2048;;
+    const maxSize = isMobile() ? 512 : 2048;
     let scaleFactor = 1;
     if (canvas.width > maxSize || canvas.height > maxSize) {
         scaleFactor = maxSize / Math.max(canvas.width, canvas.height);
