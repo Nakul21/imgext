@@ -101,26 +101,6 @@ function preprocessImageForRecognition(crops) {
     return tensor.sub(mean).div(std);
 }
 
-function decodeText(bestPath) {
-    const blank = 126;
-    let collapsed = "";
-    let lastChar = null;
-
-    const values = bestPath.dataSync();
-    for (const k of values) {
-        if (k !== blank && k !== lastChar) {
-            if (collapsed.length > 0 && !VOCAB[k].match(/[.,!?;:]/)) {
-                collapsed += ' '; // Add space before new word
-            }
-            collapsed += VOCAB[k];
-            lastChar = k;
-        } else if (k === blank) {
-            lastChar = null;
-        }
-    }
-    return collapsed.trim();
-}
-
 async function getHeatMapFromImage(imageObject) {
     let tensor = preprocessImageForDetection(imageObject);
     let prediction = await detectionModel.execute(tensor);
@@ -239,19 +219,36 @@ async function detectAndRecognizeText(imageElement) {
         const inputTensor = preprocessImageForRecognition(batch);
 
         try {
+            console.log('Input tensor shape:', inputTensor.shape);
+            
             // Use lower precision on mobile
             const predictions = await recognitionModel.executeAsync(inputTensor, {
                 precision: isMobile() ? 'low' : 'high'
             });
 
-            if (!Array.isArray(predictions)) {
+            console.log('Raw model output:', predictions);
+            console.log('Model output type:', typeof predictions);
+            console.log('Model output shape:', predictions.shape);
+
+            let probabilities;
+            if (Array.isArray(predictions)) {
+                console.log('Model output is an array');
+                probabilities = tf.softmax(predictions[0], -1);
+            } else if (predictions instanceof tf.Tensor) {
+                console.log('Model output is a tensor');
+                probabilities = tf.softmax(predictions, -1);
+            } else {
                 throw new Error('Unexpected output format from recognition model');
             }
 
-            const probabilities = tf.softmax(predictions[0], -1);
+            console.log('Probabilities shape:', probabilities.shape);
+
             const bestPath = tf.argMax(probabilities, -1);
+            console.log('Best path shape:', bestPath.shape);
             
             const words = decodeText(bestPath);
+            console.log('Decoded words:', words);
+
             fullText += words + ' ';
 
             // Store extracted words for each bounding box
@@ -262,14 +259,48 @@ async function detectAndRecognizeText(imageElement) {
                 });
             }
 
-            tf.dispose([inputTensor, predictions[0], probabilities, bestPath]);
+            tf.dispose([inputTensor, predictions, probabilities, bestPath]);
         } catch (error) {
             console.error('Error processing batch:', error);
+            console.error('Error stack:', error.stack);
             // Continue with the next batch
         }
     }
     
     return { fullText: fullText.trim(), extractedWords };
+}
+
+function decodeText(bestPath) {
+    const blank = 126;
+    let collapsed = "";
+    let lastChar = null;
+
+    const values = bestPath.dataSync();
+    for (const k of values) {
+        if (k !== blank && k !== lastChar) {
+            if (collapsed.length > 0 && !VOCAB[k].match(/[.,!?;:]/)) {
+                collapsed += ' '; // Add space before new word
+            }
+            collapsed += VOCAB[k];
+            lastChar = k;
+        } else if (k === blank) {
+            lastChar = null;
+        }
+    }
+    return collapsed.trim();
+}
+
+// Add this helper function to safely log tensor information
+function logTensorInfo(tensor, name) {
+    console.log(`${name}:`);
+    console.log('  Shape:', tensor.shape);
+    console.log('  Dtype:', tensor.dtype);
+    try {
+        const data = tensor.dataSync();
+        console.log('  First few values:', data.slice(0, 10));
+    } catch (error) {
+        console.log('  Unable to access data synchronously');
+    }
 }
 
 function isMobile() {
