@@ -17,11 +17,15 @@ const sendButton = document.getElementById('sendButton');
 const discardButton = document.getElementById('discardButton');
 const resultElement = document.getElementById('result');
 const apiResponseElement = document.getElementById('apiResponse');
+const loadingIndicator = document.getElementById('loadingIndicator');
+
+
 
 let imageDataUrl = '';
 let extractedText = '';
 let detectionModel;
 let recognitionModel;
+let boundingBoxes = [];
 
 async function loadModels() {
     try {
@@ -106,6 +110,9 @@ function decodeText(bestPath) {
         const values = sequence.dataSync();
         for (const k of values) {
             if (k !== blank && k !== lastChar) {
+                if (collapsed.length > 0 && !VOCAB[k].match(/[.,!?;:]/)) {
+                    collapsed += ' '; // Add space before new word
+                }
                 collapsed += VOCAB[k];
                 lastChar = k;
             } else if (k === blank) {
@@ -113,7 +120,7 @@ function decodeText(bestPath) {
             }
         }
     }
-    return collapsed;
+    return collapsed.trim();
 }
 
 async function getHeatMapFromImage(imageObject) {
@@ -186,7 +193,7 @@ function getRandomColor() {
 async function detectAndRecognizeText(imageElement) {
     const size = [512, 512];
     const heatmapCanvas = await getHeatMapFromImage(imageElement);
-    const boundingBoxes = extractBoundingBoxesFromHeatmap(heatmapCanvas, size);
+    boundingBoxes = extractBoundingBoxesFromHeatmap(heatmapCanvas, size);
     console.log('extractBoundingBoxesFromHeatmap', boundingBoxes);
 
     previewCanvas.width = imageElement.width;
@@ -196,8 +203,12 @@ async function detectAndRecognizeText(imageElement) {
 
     let fullText = '';
     const crops = [];
+    const extractedWords = [];
 
-    for (const box of boundingBoxes) {
+    // Limit the number of bounding boxes processed on mobile
+    const maxBoxes = isMobile() ? 10 : boundingBoxes.length;
+    for (let i = 0; i < Math.min(maxBoxes, boundingBoxes.length); i++) {
+        const box = boundingBoxes[i];
         // Draw bounding box
         const [x1, y1] = box.coordinates[0];
         const [x2, y2] = box.coordinates[2];
@@ -223,39 +234,59 @@ async function detectAndRecognizeText(imageElement) {
         crops.push(croppedCanvas);
     }
 
-    // Process crops in batches
-    const batchSize = 32;
+    // Process crops in smaller batches on mobile
+    const batchSize = isMobile() ? 4 : 32;
     for (let i = 0; i < crops.length; i += batchSize) {
         const batch = crops.slice(i, i + batchSize);
         const inputTensor = preprocessImageForRecognition(batch);
 
-        const predictions = await recognitionModel.executeAsync(inputTensor);
+        // Use lower precision on mobile
+        const predictions = await recognitionModel.executeAsync(inputTensor, {
+            precision: isMobile() ? 'low' : 'high'
+        });
         const probabilities = tf.softmax(predictions, -1);
         const bestPath = tf.unstack(tf.argMax(probabilities, -1), 0);
         
         const words = decodeText(bestPath);
         fullText += words + ' ';
 
+        // Store extracted words for each bounding box
+        for (let j = 0; j < batch.length; j++) {
+            extractedWords.push({
+                boundingBox: boundingBoxes[i + j],
+                text: words
+            });
+        }
+
         tf.dispose([inputTensor, predictions, probabilities, ...bestPath]);
     }
     
-    return fullText.trim();
+    return { fullText: fullText.trim(), extractedWords };
 }
 
-function handleCapture() {
+function isMobile() {
+    return /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+}
+    
+async function handleCapture() {
     canvas.width = video.videoWidth;
     canvas.height = video.videoHeight;
     canvas.getContext('2d').drawImage(video, 0, 0, canvas.width, canvas.height);
     
-    imageDataUrl = canvas.toDataURL('image/jpeg');
+    imageDataUrl = canvas.toDataURL('image/jpeg', isMobile() ? 0.7 : 0.9);
     resultElement.textContent = 'Processing image...';
     
     const img = new Image();
     img.src = imageDataUrl;
     img.onload = async () => {
         try {
-            extractedText = await detectAndRecognizeText(img);
+            loadingIndicator.style.display = 'block';
+            const { fullText, extractedWords } = await detectAndRecognizeText(img);
+            extractedText = fullText;
             resultElement.textContent = `Extracted Text: ${extractedText}`;
+            
+            // Store extracted words for later use
+            window.extractedWords = extractedWords;
             
             // Show preview canvas and confirmation buttons
             previewCanvas.style.display = 'block';
@@ -265,6 +296,8 @@ function handleCapture() {
         } catch (error) {
             console.error('Error during text extraction:', error);
             resultElement.textContent = 'Error occurred during text extraction';
+        } finally {
+            loadingIndicator.style.display = 'none';
         }
     };
 }
@@ -288,9 +321,11 @@ async function handleSend() {
         const response = await fetch('https://kvdb.io/NyKpFtJ7v392NS8ibLiofx/'+msgKey, {
             method: 'PUT',
             body: JSON.stringify({
-                extractetAt: msgKey,
+                extractedAt: msgKey,
                 data: extractedText,
                 userId: "imageExt",
+                boundingBoxes: boundingBoxes,
+                extractedWords: window.extractedWords
             }),
             headers: {
                 'Content-type': 'application/json; charset=UTF-8',
@@ -335,11 +370,15 @@ function clearCanvas() {
 }
 
 async function init() {
-    await loadModels();
-    await loadOpenCV();
-    await setupCamera();
+    loadingIndicator.style.display = 'block';
+    await Promise.all([
+        loadModels(),
+        loadOpenCV(),
+        setupCamera()
+    ]);
     captureButton.disabled = false;
     captureButton.textContent = 'Capture';
+    loadingIndicator.style.display = 'none';
 }
 
 function loadOpenCV() {
