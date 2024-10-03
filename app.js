@@ -50,6 +50,25 @@ async function setupCamera() {
 }
 
 function preprocessImageForDetection(imageElement) {
+        const maxSize = 2048; // Set a maximum size that works for most mobile devices
+    const originalWidth = imageElement.width;
+    const originalHeight = imageElement.height;
+    let newWidth, newHeight;
+
+    if (originalWidth > originalHeight) {
+        newWidth = Math.min(originalWidth, maxSize);
+        newHeight = (originalHeight / originalWidth) * newWidth;
+    } else {
+        newHeight = Math.min(originalHeight, maxSize);
+        newWidth = (originalWidth / originalHeight) * newHeight;
+    }
+
+    const canvas = document.createElement('canvas');
+    canvas.width = newWidth;
+    canvas.height = newHeight;
+    const ctx = canvas.getContext('2d');
+    ctx.drawImage(imageElement, 0, 0, newWidth, newHeight);
+
     const targetSize = [512, 512];
     let tensor = tf.browser
         .fromPixels(imageElement)
@@ -247,8 +266,18 @@ function handleCapture() {
     canvas.width = video.videoWidth;
     canvas.height = video.videoHeight;
     canvas.getContext('2d').drawImage(video, 0, 0, canvas.width, canvas.height);
-    
-    imageDataUrl = canvas.toDataURL('image/jpeg');
+
+    const maxSize = 2048;
+    let scaleFactor = 1;
+    if (canvas.width > maxSize || canvas.height > maxSize) {
+        scaleFactor = maxSize / Math.max(canvas.width, canvas.height);
+    }
+    const scaledCanvas = document.createElement('canvas');
+    scaledCanvas.width = canvas.width * scaleFactor;
+    scaledCanvas.height = canvas.height * scaleFactor;
+    scaledCanvas.getContext('2d').drawImage(canvas, 0, 0, scaledCanvas.width, scaledCanvas.height);
+
+    imageDataUrl = scaledCanvas.toDataURL('image/jpeg', isMobile() ? 0.7 : 0.9);
     resultElement.textContent = 'Processing image...';
     
     const img = new Image();
@@ -268,6 +297,10 @@ function handleCapture() {
             resultElement.textContent = 'Error occurred during text extraction';
         }
     };
+}
+
+function isMobile() {
+    return /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
 }
 
 function handleConfirm() {
