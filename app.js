@@ -106,6 +106,9 @@ function decodeText(bestPath) {
         const values = sequence.dataSync();
         for (const k of values) {
             if (k !== blank && k !== lastChar) {
+             if (collapsed.length > 0 && !VOCAB[k].match(/[.,!?;:]/)) {
+                collapsed += ' '; // Add space before new word
+            }               
                 collapsed += VOCAB[k];
                 lastChar = k;
             } else if (k === blank) {
@@ -113,7 +116,7 @@ function decodeText(bestPath) {
             }
         }
     }
-    return collapsed;
+    return collapsed.trim();
 }
 
 async function getHeatMapFromImage(imageObject) {
