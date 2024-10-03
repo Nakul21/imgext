@@ -69,7 +69,7 @@ function preprocessImageForDetection(imageElement) {
     const ctx = canvas.getContext('2d');
     ctx.drawImage(imageElement, 0, 0, newWidth, newHeight);
 
-    const targetSize = isMobile() ? [256,256] : [512, 512];
+    const targetSize = [512, 512];
     let tensor = tf.tidy( () => { 
         return tf.browser
         .fromPixels(imageElement)
