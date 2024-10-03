@@ -106,18 +106,16 @@ function decodeText(bestPath) {
     let collapsed = "";
     let lastChar = null;
 
-    for (const sequence of bestPath) {
-        const values = sequence.dataSync();
-        for (const k of values) {
-            if (k !== blank && k !== lastChar) {
-                if (collapsed.length > 0 && !VOCAB[k].match(/[.,!?;:]/)) {
-                    collapsed += ' '; // Add space before new word
-                }
-                collapsed += VOCAB[k];
-                lastChar = k;
-            } else if (k === blank) {
-                lastChar = null;
+    const values = bestPath.dataSync();
+    for (const k of values) {
+        if (k !== blank && k !== lastChar) {
+            if (collapsed.length > 0 && !VOCAB[k].match(/[.,!?;:]/)) {
+                collapsed += ' '; // Add space before new word
             }
+            collapsed += VOCAB[k];
+            lastChar = k;
+        } else if (k === blank) {
+            lastChar = null;
         }
     }
     return collapsed.trim();
@@ -240,25 +238,35 @@ async function detectAndRecognizeText(imageElement) {
         const batch = crops.slice(i, i + batchSize);
         const inputTensor = preprocessImageForRecognition(batch);
 
-        // Use lower precision on mobile
-        const predictions = await recognitionModel.executeAsync(inputTensor, {
-            precision: isMobile() ? 'low' : 'high'
-        });
-        const probabilities = tf.softmax(predictions, -1);
-        const bestPath = tf.unstack(tf.argMax(probabilities, -1), 0);
-        
-        const words = decodeText(bestPath);
-        fullText += words + ' ';
-
-        // Store extracted words for each bounding box
-        for (let j = 0; j < batch.length; j++) {
-            extractedWords.push({
-                boundingBox: boundingBoxes[i + j],
-                text: words
+        try {
+            // Use lower precision on mobile
+            const predictions = await recognitionModel.executeAsync(inputTensor, {
+                precision: isMobile() ? 'low' : 'high'
             });
-        }
 
-        tf.dispose([inputTensor, predictions, probabilities, ...bestPath]);
+            if (!Array.isArray(predictions)) {
+                throw new Error('Unexpected output format from recognition model');
+            }
+
+            const probabilities = tf.softmax(predictions[0], -1);
+            const bestPath = tf.argMax(probabilities, -1);
+            
+            const words = decodeText(bestPath);
+            fullText += words + ' ';
+
+            // Store extracted words for each bounding box
+            for (let j = 0; j < batch.length; j++) {
+                extractedWords.push({
+                    boundingBox: boundingBoxes[i + j],
+                    text: words
+                });
+            }
+
+            tf.dispose([inputTensor, predictions[0], probabilities, bestPath]);
+        } catch (error) {
+            console.error('Error processing batch:', error);
+            // Continue with the next batch
+        }
     }
     
     return { fullText: fullText.trim(), extractedWords };
