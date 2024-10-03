@@ -1,1 +1,103 @@
+async function detectAndRecognizeText(imageElement) {
+    const size = [512, 512];
+    const heatmapCanvas = await getHeatMapFromImage(imageElement);
+    boundingBoxes = extractBoundingBoxesFromHeatmap(heatmapCanvas, size);
+    console.log('extractBoundingBoxesFromHeatmap', boundingBoxes);
 
+    previewCanvas.width = imageElement.width;
+    previewCanvas.height = imageElement.height;
+    const ctx = previewCanvas.getContext('2d');
+    ctx.drawImage(imageElement, 0, 0);
+
+    let fullText = '';
+    const crops = [];
+    const extractedWords = [];
+
+    // Limit the number of bounding boxes processed on mobile
+    const maxBoxes = isMobile() ? 10 : boundingBoxes.length;
+    for (let i = 0; i < Math.min(maxBoxes, boundingBoxes.length); i++) {
+        const box = boundingBoxes[i];
+        // Draw bounding box
+        const [x1, y1] = box.coordinates[0];
+        const [x2, y2] = box.coordinates[2];
+        const width = (x2 - x1) * imageElement.width;
+        const height = (y2 - y1) * imageElement.height;
+        const x = x1 * imageElement.width;
+        const y = y1 * imageElement.height;
+
+        ctx.strokeStyle = box.config.stroke;
+        ctx.lineWidth = 2;
+        ctx.strokeRect(x, y, width, height);
+
+        // Create crop
+        const croppedCanvas = document.createElement('canvas');
+        croppedCanvas.width = width;
+        croppedCanvas.height = height;
+        croppedCanvas.getContext('2d').drawImage(
+            imageElement, 
+            x, y, width, height,
+            0, 0, width, height
+        );
+
+        crops.push(croppedCanvas);
+    }
+
+    // Process crops in smaller batches on mobile
+    const batchSize = isMobile() ? 4 : 32;
+    for (let i = 0; i < crops.length; i += batchSize) {
+        const batch = crops.slice(i, i + batchSize);
+        const inputTensor = preprocessImageForRecognition(batch);
+
+        try {
+            // Use lower precision on mobile
+            const predictions = await recognitionModel.executeAsync(inputTensor, {
+                precision: isMobile() ? 'low' : 'high'
+            });
+
+            if (!Array.isArray(predictions)) {
+                throw new Error('Unexpected output format from recognition model');
+            }
+
+            const probabilities = tf.softmax(predictions[0], -1);
+            const bestPath = tf.argMax(probabilities, -1);
+            
+            const words = decodeText(bestPath);
+            fullText += words + ' ';
+
+            // Store extracted words for each bounding box
+            for (let j = 0; j < batch.length; j++) {
+                extractedWords.push({
+                    boundingBox: boundingBoxes[i + j],
+                    text: words
+                });
+            }
+
+            tf.dispose([inputTensor, predictions[0], probabilities, bestPath]);
+        } catch (error) {
+            console.error('Error processing batch:', error);
+            // Continue with the next batch
+        }
+    }
+    
+    return { fullText: fullText.trim(), extractedWords };
+}
+
+function decodeText(bestPath) {
+    const blank = 126;
+    let collapsed = "";
+    let lastChar = null;
+
+    const values = bestPath.dataSync();
+    for (const k of values) {
+        if (k !== blank && k !== lastChar) {
+            if (collapsed.length > 0 && !VOCAB[k].match(/[.,!?;:]/)) {
+                collapsed += ' '; // Add space before new word
+            }
+            collapsed += VOCAB[k];
+            lastChar = k;
+        } else if (k === blank) {
+            lastChar = null;
+        }
+    }
+    return collapsed.trim();
+}
