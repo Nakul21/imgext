@@ -83,12 +83,14 @@ async function preprocessImageForRecognition(imageElement) {
         ];
     }
 
-    return tf.browser
-      .fromPixels(imageElement)
-      .resizeNearestNeighbor(resizeTarget)
-      .pad(paddingTarget, 0)
-      .toFloat()
-      .expandDims();
+    return tf.tidy(() => {
+        return tf.browser
+            .fromPixels(imageElement)
+            .resizeNearestNeighbor(resizeTarget)
+            .pad(paddingTarget, 0)
+            .toFloat()
+            .expandDims();
+    });
 }
 
 function decodeText(bestPath) {
@@ -158,66 +160,63 @@ function getRandomColor()
     return randomColor;
 }
 
-
-
 async function detectAndRecognizeText(imageElement) {
-    //const size = [imageElement.height, imageElement.width];
     const size = [512, 512];
     const heatmapCanvas = await getHeatMapFromImage(imageElement);
     const boundingBoxes = extractBoundingBoxesFromHeatmap(heatmapCanvas, size);
     console.log('extractBoundingBoxesFromHeatmap', boundingBoxes);
-    // Draw bounding boxes on the preview canvas
+
     previewCanvas.width = imageElement.width;
     previewCanvas.height = imageElement.height;
     const ctx = previewCanvas.getContext('2d');
     ctx.drawImage(imageElement, 0, 0);
-    ctx.strokeStyle = 'red';
-    ctx.lineWidth = 2;
 
     let fullText = '';
     const crops = [];
 
     for (const box of boundingBoxes) {
         // Draw bounding box
-        ctx.strokeRect(box.x, box.y, box.width, box.height);
+        const [x1, y1] = box.coordinates[0];
+        const [x2, y2] = box.coordinates[2];
+        const width = (x2 - x1) * imageElement.width;
+        const height = (y2 - y1) * imageElement.height;
+        const x = x1 * imageElement.width;
+        const y = y1 * imageElement.height;
 
-        const croppedCanvas = document.createElement('canvas');
-        croppedCanvas.width = box.width;
-        croppedCanvas.height = box.height;
-        croppedCanvas.getContext('2d').drawImage(
-            imageElement, 
-            box.x, box.y, box.width, box.height,
-            0, 0, box.width, box.height
-        );
+        ctx.strokeStyle = box.config.stroke;
+        ctx.lineWidth = 2;
+        ctx.strokeRect(x, y, width, height);
 
-        const croppedImg = new Image();
-        croppedImg.src = croppedCanvas.toDataURL('image/jpeg');
-        await croppedImg.decode();
-        crops.push(croppedImg);
+        // Create crop
+        const crop = {
+            id: box.id.toString(), // Convert to string to match TypeScript implementation
+            crop: imageElement,
+            color: box.config.stroke
+        };
+        crops.push(crop);
     }
 
-    let mean = tf.scalar(255 * REC_MEAN);
-    let std = tf.scalar(255 * REC_STD);
-
-    // Process crops in batches of 32
+    // Process crops in batches
     const batchSize = 32;
     for (let i = 0; i < crops.length; i += batchSize) {
         const batch = crops.slice(i, i + batchSize);
-        const inputTensors = await Promise.all(batch.map(crop => preprocessImageForRecognition(crop)));
+        const inputTensors = await Promise.all(batch.map(crop => preprocessImageForRecognition(crop.crop)));
         const inputTensorBatch = tf.concat(inputTensors);
 
-        const predictions = await recognitionModel.executeAsync(inputTensorBatch.sub(mean).div(std));
+        const predictions = await recognitionModel.executeAsync(inputTensorBatch);
         const probabilities = tf.softmax(predictions, -1);
         const bestPath = tf.unstack(tf.argMax(probabilities, -1), 0);
         
-        const batchText = decodeText(bestPath);
-        fullText += batchText + ' ';
+        const words = decodeText(bestPath);
+        fullText += words.join(' ') + ' ';
 
         tf.dispose([inputTensorBatch, predictions, probabilities, ...bestPath]);
     }
     
     return fullText.trim();
 }
+
+
 
 function handleCapture() {
     canvas.width = video.videoWidth;
