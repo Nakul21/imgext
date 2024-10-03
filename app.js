@@ -105,16 +105,14 @@ function decodeText(bestPath) {
     for (const sequence of bestPath) {
         const values = sequence.dataSync();
         for (const k of values) {
-            if (k !== blank && k !== lastChar) {
-             if (collapsed.length > 0 && !VOCAB[k].match(/[.,!?;:]/)) {
-                collapsed += ' '; // Add space before new word
-            }               
+            if (k !== blank && k !== lastChar) {         
                 collapsed += VOCAB[k];
                 lastChar = k;
             } else if (k === blank) {
                 lastChar = null;
             }
         }
+        collapsed += ' ';
     }
     return collapsed.trim();
 }
