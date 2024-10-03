@@ -69,11 +69,13 @@ function preprocessImageForDetection(imageElement) {
     const ctx = canvas.getContext('2d');
     ctx.drawImage(imageElement, 0, 0, newWidth, newHeight);
 
-    const targetSize = [512, 512];
-    let tensor = tf.browser
+    const targetSize = isMobile() ? [256,256] : [512, 512];
+    let tensor = tf.tidy( () => { 
+        return tf.browser
         .fromPixels(imageElement)
         .resizeNearestNeighbor(targetSize)
         .toFloat();
+        });
     let mean = tf.scalar(255 * DET_MEAN);
     let std = tf.scalar(255 * DET_STD);
     return tensor.sub(mean).div(std).expandDims();
@@ -232,8 +234,8 @@ async function detectAndRecognizeText(imageElement) {
 
         // Create crop
         const croppedCanvas = document.createElement('canvas');
-        croppedCanvas.width = width;
-        croppedCanvas.height = height;
+        croppedCanvas.width = Math.min(width, 128)
+        croppedCanvas.height = Math.min(height, 32);
         croppedCanvas.getContext('2d').drawImage(
             imageElement, 
             x, y, width, height,
