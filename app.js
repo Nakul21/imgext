@@ -280,11 +280,26 @@ async function detectAndRecognizeText(imageElement) {
         throw error;
    
     } finally {
+        tf.dispose([...crops]); 
         tf.disposeVariables(); // Clean up any remaining tensors
     }
 }
 
+function disableCaptureButton() {
+    captureButton.disabled = true;
+    captureButton.textContent = 'Processing...';
+}
+
+function enableCaptureButton() {
+    captureButton.disabled = false;
+    captureButton.textContent = 'Capture';
+}
+
+
 function handleCapture() {
+    
+    disableCaptureButton();
+
     canvas.width = TARGET_SIZE[0];
     canvas.height = TARGET_SIZE[1];
     canvas.getContext('2d').drawImage(video, 0, 0, canvas.width, canvas.height);
@@ -319,7 +334,8 @@ function handleCapture() {
             resultElement.textContent = 'Error occurred during text extraction';
         }
         finally {
-            tf.engine().endScope(); // Ensure all tensors are cleaned up
+            enableCaptureButton(); // Re-enable the capture button
+            tf.disposeVariables(); // Clean up any remaining tensors
         }
     };
 }
