@@ -292,14 +292,22 @@ async function detectAndRecognizeText(imageElement) {
             0, 0, width, height
         );
 
-        crops.push(croppedCanvas);
+        crops.push({
+            canvas: croppedCanvas,
+            bbox: {
+                x: Math.round(x),
+                y: Math.round(y),
+                width: Math.round(width),
+                height: Math.round(height)
+            }
+        );
     }
 
     // Process crops in batches
     const batchSize = isMobile() ? 32 : 32;
     for (let i = 0; i < crops.length; i += batchSize) {
         const batch = crops.slice(i, i + batchSize);
-        const inputTensor = preprocessImageForRecognition(batch);
+        const inputTensor = preprocessImageForRecognition(batch.map(crop => crop.canvas));
 
         const predictions = await recognitionModel.executeAsync(inputTensor);
         const probabilities = tf.softmax(predictions, -1);
@@ -309,7 +317,7 @@ async function detectAndRecognizeText(imageElement) {
 
         // Associate each word with its bounding box
         words.split(' ').forEach((word, index) => {
-            if (word) {
+            if (word && batch[index]) {
                 extractedData.push({
                     word: word,
                     boundingBox: batch[index].bbox
