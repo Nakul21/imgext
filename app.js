@@ -280,7 +280,6 @@ async function detectAndRecognizeText(imageElement) {
         throw error;
    
     } finally {
-        tf.dispose([...crops]); 
         tf.disposeVariables(); // Clean up any remaining tensors
     }
 }
