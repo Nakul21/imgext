@@ -17,36 +17,74 @@ const sendButton = document.getElementById('sendButton');
 const discardButton = document.getElementById('discardButton');
 const resultElement = document.getElementById('result');
 const apiResponseElement = document.getElementById('apiResponse');
+const loadingIndicator = document.getElementById('loadingIndicator');
+const appContainer = document.getElementById('appContainer');
+
+let modelLoadingPromise;
 
 let imageDataUrl = '';
 let extractedText = '';
 let detectionModel;
 let recognitionModel;
 
+function showLoading(message) {
+    loadingIndicator.textContent = message;
+    loadingIndicator.style.display = 'block';
+    appContainer.style.display = 'none';
+}
+
+function hideLoading() {
+    loadingIndicator.style.display = 'none';
+    appContainer.style.display = 'block';
+}
+
 async function loadModels() {
     try {
+        showLoading('Loading detection model...');
         detectionModel = await tf.loadGraphModel('models/db_mobilenet_v2/model.json');
+        
+        showLoading('Loading recognition model...');
         recognitionModel = await tf.loadGraphModel('models/crnn_mobilenet_v2/model.json');
+        
         console.log('Models loaded successfully');
+        hideLoading();
     } catch (error) {
         console.error('Error loading models:', error);
+        showLoading('Error loading models. Please refresh the page.');
+    }
+}
+
+function initializeModelLoading() {
+    modelLoadingPromise = loadModels();
+}
+
+async function ensureModelsLoaded() {
+    if (modelLoadingPromise) {
+        await modelLoadingPromise;
     }
 }
 
 async function setupCamera() {
-    const stream = await navigator.mediaDevices.getUserMedia({ 
-        video: { 
-            facingMode: 'environment',
-            width: { ideal: 512 },
-            height: { ideal: 512 }
-        } 
-    });
-    video.srcObject = stream;
-    return new Promise((resolve) => {
-        video.onloadedmetadata = () => {
-            resolve(video);
-        };
-    });
+    showLoading('Setting up camera...');
+    try {
+        const stream = await navigator.mediaDevices.getUserMedia({ 
+            video: { 
+                facingMode: 'environment',
+                width: { ideal: 512 },
+                height: { ideal: 512 }
+            } 
+        });
+        video.srcObject = stream;
+        return new Promise((resolve) => {
+            video.onloadedmetadata = () => {
+                hideLoading();
+                resolve(video);
+            };
+        });
+    } catch (error) {
+        console.error('Error setting up camera:', error);
+        showLoading('Error setting up camera. Please check permissions and refresh.');
+    }
 }
 
 function preprocessImageForDetection(imageElement) {
@@ -295,26 +333,18 @@ function enableCaptureButton() {
 }
 
 
-function handleCapture() {
-    
+async function handleCapture() {
     disableCaptureButton();
+    showLoading('Processing image...');
 
-    canvas.width = TARGET_SIZE[0];
-    canvas.height = TARGET_SIZE[1];
+    await ensureModelsLoaded();  // Ensure models are loaded before processing
+
+    const targetSize = isMobile() ? MOBILE_TARGET_SIZE : DESKTOP_TARGET_SIZE;
+    canvas.width = targetSize[0];
+    canvas.height = targetSize[1];
     canvas.getContext('2d').drawImage(video, 0, 0, canvas.width, canvas.height);
 
-    const maxSize = isMobile() ? 512 : 2048;
-    let scaleFactor = 1;
-    if (canvas.width > maxSize || canvas.height > maxSize) {
-        scaleFactor = maxSize / Math.max(canvas.width, canvas.height);
-    }
-    const scaledCanvas = document.createElement('canvas');
-    scaledCanvas.width = canvas.width * scaleFactor;
-    scaledCanvas.height = canvas.height * scaleFactor;
-    scaledCanvas.getContext('2d').drawImage(canvas, 0, 0, scaledCanvas.width, scaledCanvas.height);
-
-    imageDataUrl = scaledCanvas.toDataURL('image/jpeg', isMobile() ? 0.7 : 0.9);
-    resultElement.textContent = 'Processing image...';
+    imageDataUrl = canvas.toDataURL('image/jpeg', isMobile() ? 0.7 : 0.9);
     
     const img = new Image();
     img.src = imageDataUrl;
@@ -323,7 +353,6 @@ function handleCapture() {
             extractedText = await detectAndRecognizeText(img);
             resultElement.textContent = `Extracted Text: ${extractedText}`;
             
-            // Show preview canvas and confirmation buttons
             previewCanvas.style.display = 'block';
             confirmButton.style.display = 'inline-block';
             retryButton.style.display = 'inline-block';
@@ -331,10 +360,10 @@ function handleCapture() {
         } catch (error) {
             console.error('Error during text extraction:', error);
             resultElement.textContent = 'Error occurred during text extraction';
-        }
-        finally {
-            enableCaptureButton(); // Re-enable the capture button
-            tf.disposeVariables(); // Clean up any remaining tensors
+        } finally {
+            enableCaptureButton();
+            hideLoading();
+            tf.disposeVariables();
         }
     };
 }
@@ -422,10 +451,14 @@ function monitorMemoryUsage() {
 }
 
 async function init() {
-    await loadModels();
-    //await loadOpenCV();
-    await setupCamera();
-    //monitorMemoryUsage();
+    if (isMobile()) {
+        await tf.ready();
+        await tf.setBackend('webgl');
+    }
+    
+    initializeModelLoading();  // Start loading models in the background
+    await setupCamera();  // Set up the camera while models are loading
+    
     captureButton.disabled = false;
     captureButton.textContent = 'Capture';
 }
