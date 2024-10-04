@@ -24,6 +24,7 @@ let modelLoadingPromise;
 
 let imageDataUrl = '';
 let extractedText = '';
+let extractedData = [];
 let detectionModel;
 let recognitionModel;
 
@@ -265,7 +266,7 @@ async function detectAndRecognizeText(imageElement) {
 
     let fullText = '';
     const crops = [];
-
+    
     try {
 
     for (const box of boundingBoxes) {
@@ -305,12 +306,21 @@ async function detectAndRecognizeText(imageElement) {
         const bestPath = tf.unstack(tf.argMax(probabilities, -1), 0);
         
         const words = decodeText(bestPath);
-        fullText += words + ' ';
+
+        // Associate each word with its bounding box
+        words.split(' ').forEach((word, index) => {
+            if (word) {
+                extractedData.push({
+                    word: word,
+                    boundingBox: batch[index].bbox
+                });
+            }
+        });
 
         tf.dispose([inputTensor, predictions, probabilities, ...bestPath]);
     }
     
-    return fullText.trim();
+    return extractedData;
     
     } catch(error) {
         
@@ -350,7 +360,8 @@ async function handleCapture() {
     img.src = imageDataUrl;
     img.onload = async () => {
         try {
-            extractedText = await detectAndRecognizeText(img);
+            extractedData = await detectAndRecognizeText(img);
+            extractedText = extractedData.map(item => item.word).join(' ');
             resultElement.textContent = `Extracted Text: ${extractedText}`;
             
             previewCanvas.style.display = 'block';
@@ -393,7 +404,8 @@ async function handleSend() {
             method: 'PUT',
             body: JSON.stringify({
                 extractetAt: msgKey,
-                data: extractedText,
+                probableTextContent: extractedText,
+                boundingBoxes: extractedData,
                 userId: "imageExt",
             }),
             headers: {
@@ -426,6 +438,7 @@ function resetUI() {
     apiResponseElement.textContent = '';
     imageDataUrl = '';
     extractedText = '';
+    extractedData = [];
     clearCanvas();
     previewCanvas.style.display = 'none';
     confirmButton.style.display = 'none';
