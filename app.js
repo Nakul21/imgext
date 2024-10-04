@@ -30,12 +30,12 @@ let recognitionModel;
 function showLoading(message) {
     loadingIndicator.textContent = message;
     loadingIndicator.style.display = 'block';
-    appContainer.style.display = 'none';
+    //appContainer.style.display = 'none';
 }
 
 function hideLoading() {
     loadingIndicator.style.display = 'none';
-    appContainer.style.display = 'block';
+    //appContainer.style.display = 'block';
 }
 
 async function loadModels() {
