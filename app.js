@@ -300,7 +300,7 @@ async function detectAndRecognizeText(imageElement) {
                 width: Math.round(width),
                 height: Math.round(height)
             }
-        );
+        });
     }
 
     // Process crops in batches
