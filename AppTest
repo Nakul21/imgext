@@ -1,78 +1,90 @@
-async function setupCamera() {
-    const stream = await navigator.mediaDevices.getUserMedia({ 
-        video: { 
-            facingMode: 'environment',
-            width: { ideal: 1280 },
-            height: { ideal: 720 }
-        } 
-    });
-    video.srcObject = stream;
-    return new Promise((resolve) => {
-        video.onloadedmetadata = () => {
-            resolve(video);
-        };
-    });
+// ... (previous constants and DOM elements remain the same)
+
+// Add new DOM elements
+const loadingIndicator = document.getElementById('loadingIndicator');
+const appContainer = document.getElementById('appContainer');
+
+let modelLoadingPromise;
+
+function showLoading(message) {
+    loadingIndicator.textContent = message;
+    loadingIndicator.style.display = 'block';
+    appContainer.style.display = 'none';
 }
 
-function preprocessImageForDetection(imageElement) {
-    const maxSize = 2048; // Set a maximum size that works for most mobile devices
-    const originalWidth = imageElement.width;
-    const originalHeight = imageElement.height;
-    let newWidth, newHeight;
+function hideLoading() {
+    loadingIndicator.style.display = 'none';
+    appContainer.style.display = 'block';
+}
 
-    if (originalWidth > originalHeight) {
-        newWidth = Math.min(originalWidth, maxSize);
-        newHeight = (originalHeight / originalWidth) * newWidth;
-    } else {
-        newHeight = Math.min(originalHeight, maxSize);
-        newWidth = (originalWidth / originalHeight) * newHeight;
+async function loadModels() {
+    try {
+        showLoading('Loading detection model...');
+        detectionModel = await tf.loadGraphModel('models/db_mobilenet_v2/model.json');
+        
+        showLoading('Loading recognition model...');
+        recognitionModel = await tf.loadGraphModel('models/crnn_mobilenet_v2/model.json');
+        
+        console.log('Models loaded successfully');
+        hideLoading();
+    } catch (error) {
+        console.error('Error loading models:', error);
+        showLoading('Error loading models. Please refresh the page.');
     }
+}
 
-    const canvas = document.createElement('canvas');
-    canvas.width = newWidth;
-    canvas.height = newHeight;
-    const ctx = canvas.getContext('2d');
-    ctx.drawImage(imageElement, 0, 0, newWidth, newHeight);
+function initializeModelLoading() {
+    modelLoadingPromise = loadModels();
+}
 
-    const targetSize = [512, 512];
-    let tensor = tf.browser
-        .fromPixels(canvas)
-        .resizeNearestNeighbor(targetSize)
-        .toFloat();
-    let mean = tf.scalar(255 * DET_MEAN);
-    let std = tf.scalar(255 * DET_STD);
-    return tensor.sub(mean).div(std).expandDims();
+async function ensureModelsLoaded() {
+    if (modelLoadingPromise) {
+        await modelLoadingPromise;
+    }
+}
+
+async function setupCamera() {
+    showLoading('Setting up camera...');
+    try {
+        const stream = await navigator.mediaDevices.getUserMedia({ 
+            video: { 
+                facingMode: 'environment',
+                width: { ideal: 512 },
+                height: { ideal: 512 }
+            } 
+        });
+        video.srcObject = stream;
+        return new Promise((resolve) => {
+            video.onloadedmetadata = () => {
+                hideLoading();
+                resolve(video);
+            };
+        });
+    } catch (error) {
+        console.error('Error setting up camera:', error);
+        showLoading('Error setting up camera. Please check permissions and refresh.');
+    }
 }
 
 async function handleCapture() {
-    canvas.width = video.videoWidth;
-    canvas.height = video.videoHeight;
+    disableCaptureButton();
+    showLoading('Processing image...');
+
+    await ensureModelsLoaded();  // Ensure models are loaded before processing
+
+    const targetSize = isMobile() ? MOBILE_TARGET_SIZE : DESKTOP_TARGET_SIZE;
+    canvas.width = targetSize[0];
+    canvas.height = targetSize[1];
     canvas.getContext('2d').drawImage(video, 0, 0, canvas.width, canvas.height);
-    
-    const maxSize = 2048;
-    let scaleFactor = 1;
-    if (canvas.width > maxSize || canvas.height > maxSize) {
-        scaleFactor = maxSize / Math.max(canvas.width, canvas.height);
-    }
-    
-    const scaledCanvas = document.createElement('canvas');
-    scaledCanvas.width = canvas.width * scaleFactor;
-    scaledCanvas.height = canvas.height * scaleFactor;
-    scaledCanvas.getContext('2d').drawImage(canvas, 0, 0, scaledCanvas.width, scaledCanvas.height);
-    
-    imageDataUrl = scaledCanvas.toDataURL('image/jpeg', isMobile() ? 0.7 : 0.9);
-    resultElement.textContent = 'Processing image...';
+
+    imageDataUrl = canvas.toDataURL('image/jpeg', isMobile() ? 0.7 : 0.9);
     
     const img = new Image();
     img.src = imageDataUrl;
     img.onload = async () => {
         try {
-            loadingIndicator.style.display = 'block';
-            const { fullText, extractedWords } = await detectAndRecognizeText(img);
-            extractedText = fullText;
+            extractedText = await detectAndRecognizeText(img);
             resultElement.textContent = `Extracted Text: ${extractedText}`;
-            
-            window.extractedWords = extractedWords;
             
             previewCanvas.style.display = 'block';
             confirmButton.style.display = 'inline-block';
@@ -82,7 +94,27 @@ async function handleCapture() {
             console.error('Error during text extraction:', error);
             resultElement.textContent = 'Error occurred during text extraction';
         } finally {
-            loadingIndicator.style.display = 'none';
+            enableCaptureButton();
+            hideLoading();
+            tf.disposeVariables();
         }
     };
 }
+
+async function init() {
+    if (isMobile()) {
+        await tf.ready();
+        await tf.setBackend('webgl');
+    }
+    
+    initializeModelLoading();  // Start loading models in the background
+    await setupCamera();  // Set up the camera while models are loading
+    
+    captureButton.disabled = false;
+    captureButton.textContent = 'Capture';
+}
+
+// ... (rest of the code remains the same)
+
+// Initialize the application
+init();
