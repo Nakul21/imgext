@@ -339,7 +339,7 @@ async function handleCapture() {
 
     await ensureModelsLoaded();  // Ensure models are loaded before processing
 
-    const targetSize = isMobile() ? MOBILE_TARGET_SIZE : DESKTOP_TARGET_SIZE;
+    const targetSize = TARGET_SIZE;
     canvas.width = targetSize[0];
     canvas.height = targetSize[1];
     canvas.getContext('2d').drawImage(video, 0, 0, canvas.width, canvas.height);
