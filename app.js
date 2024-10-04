@@ -257,7 +257,7 @@ async function detectAndRecognizeText(imageElement) {
     }
 
     // Process crops in batches
-    const batchSize = isMobile() ? 2 : 32;
+    const batchSize = isMobile() ? 16 : 32;
     for (let i = 0; i < crops.length; i += batchSize) {
         const batch = crops.slice(i, i + batchSize);
         const inputTensor = preprocessImageForRecognition(batch);
