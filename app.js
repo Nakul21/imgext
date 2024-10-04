@@ -4,7 +4,7 @@ const REC_STD = 0.298;
 const DET_MEAN = 0.785;
 const DET_STD = 0.275;
 const VOCAB = "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ!\"#$%&'()*+,-./:;<=>?@[\\]^_`{|}~°£€¥¢฿àâéèêëîïôùûüçÀÂÉÈÊËÎÏÔÙÛÜÇ";
-
+const TARGET_SIZE = [512, 512];
 // DOM Elements
 const video = document.getElementById('video');
 const canvas = document.getElementById('canvas');
@@ -69,11 +69,11 @@ function preprocessImageForDetection(imageElement) {
     const ctx = canvas.getContext('2d');
     ctx.drawImage(imageElement, 0, 0, newWidth, newHeight);
 
-    const targetSize = [512, 512];
+    //const targetSize = [512, 512];
     let tensor = tf.tidy( () => { 
         return tf.browser
         .fromPixels(imageElement)
-        .resizeNearestNeighbor(targetSize)
+        .resizeNearestNeighbor(TARGET_SIZE)
         .toFloat();
         });
     let mean = tf.scalar(255 * DET_MEAN);
@@ -215,13 +215,13 @@ async function detectAndRecognizeText(imageElement) {
     if (isMobile()) {
         useCPU(); // Switch to CPU for mobile devices
     }
-    const size = [512, 512];
+    //const size = [512, 512];
     const heatmapCanvas = await getHeatMapFromImage(imageElement);
-    const boundingBoxes = extractBoundingBoxesFromHeatmap(heatmapCanvas, size);
+    const boundingBoxes = extractBoundingBoxesFromHeatmap(heatmapCanvas, TARGET_SIZE);
     // console.log('extractBoundingBoxesFromHeatmap', boundingBoxes);
 
-    previewCanvas.width = imageElement.width;
-    previewCanvas.height = imageElement.height;
+    previewCanvas.width = TARGET_SIZE[0];
+    previewCanvas.height = TARGET_SIZE[1];
     const ctx = previewCanvas.getContext('2d');
     ctx.drawImage(imageElement, 0, 0);
 
@@ -285,8 +285,8 @@ async function detectAndRecognizeText(imageElement) {
 }
 
 function handleCapture() {
-    canvas.width = video.videoWidth;
-    canvas.height = video.videoHeight;
+    canvas.width = TARGET_SIZE[0];
+    canvas.height = TARGET_SIZE[1];
     canvas.getContext('2d').drawImage(video, 0, 0, canvas.width, canvas.height);
 
     const maxSize = isMobile() ? 512 : 2048;
@@ -408,7 +408,7 @@ function monitorMemoryUsage() {
 
 async function init() {
     await loadModels();
-    await loadOpenCV();
+    //await loadOpenCV();
     await setupCamera();
     //monitorMemoryUsage();
     captureButton.disabled = false;
