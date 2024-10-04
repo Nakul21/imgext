@@ -1,1 +1,83 @@
 
+
+function disableCaptureButton() {
+    captureButton.disabled = true;
+    captureButton.textContent = 'Processing...';
+}
+
+function enableCaptureButton() {
+    captureButton.disabled = false;
+    captureButton.textContent = 'Capture';
+}
+
+function handleCapture() {
+    disableCaptureButton();
+
+    canvas.width = TARGET_SIZE[0];
+    canvas.height = TARGET_SIZE[1];
+    canvas.getContext('2d').drawImage(video, 0, 0, canvas.width, canvas.height);
+
+    const maxSize = isMobile() ? 512 : 2048;
+    let scaleFactor = 1;
+    if (canvas.width > maxSize || canvas.height > maxSize) {
+        scaleFactor = maxSize / Math.max(canvas.width, canvas.height);
+    }
+    const scaledCanvas = document.createElement('canvas');
+    scaledCanvas.width = canvas.width * scaleFactor;
+    scaledCanvas.height = canvas.height * scaleFactor;
+    scaledCanvas.getContext('2d').drawImage(canvas, 0, 0, scaledCanvas.width, scaledCanvas.height);
+
+    imageDataUrl = scaledCanvas.toDataURL('image/jpeg', isMobile() ? 0.7 : 0.9);
+    resultElement.textContent = 'Processing image...';
+    
+    const img = new Image();
+    img.src = imageDataUrl;
+    img.onload = async () => {
+        try {
+            extractedText = await detectAndRecognizeText(img);
+            resultElement.textContent = `Extracted Text: ${extractedText}`;
+            
+            // Show preview canvas and confirmation buttons
+            previewCanvas.style.display = 'block';
+            confirmButton.style.display = 'inline-block';
+            retryButton.style.display = 'inline-block';
+            captureButton.style.display = 'none';
+        } catch (error) {
+            console.error('Error during text extraction:', error);
+            resultElement.textContent = 'Error occurred during text extraction';
+        }
+        finally {
+            // Clean up any remaining tensors
+            tf.disposeVariables();
+            enableCaptureButton(); // Re-enable the capture button
+        }
+    };
+}
+
+async function detectAndRecognizeText(imageElement) {
+    if (isMobile()) {
+        useCPU(); // Switch to CPU for mobile devices
+    }
+    const heatmapCanvas = await getHeatMapFromImage(imageElement);
+    const boundingBoxes = extractBoundingBoxesFromHeatmap(heatmapCanvas, TARGET_SIZE);
+
+    previewCanvas.width = TARGET_SIZE[0];
+    previewCanvas.height = TARGET_SIZE[1];
+    const ctx = previewCanvas.getContext('2d');
+    ctx.drawImage(imageElement, 0, 0);
+
+    let fullText = '';
+    const crops = [];
+
+    try {
+        
+
+        return fullText.trim();
+    } catch(error) {
+        console.error('Error in detectAndRecognizeText:', error);
+        throw error;
+    } finally {
+        tf.dispose([...crops]); // Dispose of any remaining tensors
+    }
+}
+ 
