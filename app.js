@@ -410,7 +410,7 @@ async function init() {
     await loadModels();
     await loadOpenCV();
     await setupCamera();
-    monitorMemoryUsage();
+    //monitorMemoryUsage();
     captureButton.disabled = false;
     captureButton.textContent = 'Capture';
 }
