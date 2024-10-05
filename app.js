@@ -551,7 +551,6 @@ function loadOpenCV() {
     });
 }
 
-// Event Listeners
 captureButton.addEventListener('click', () => {
     if (captureMenu.style.display === 'block') {
         toggleCaptureMenu();
@@ -567,11 +566,6 @@ captureButton.addEventListener('touchstart', (e) => {
         handleCapture();
     }
 });
-
-confirmButton.addEventListener('click', handleConfirm);
-confirmButton.addEventListener('touchstart', handleConfirm);
-retryButton.addEventListener('click', handleRetry);
-retryButton.addEventListener('touchstart', handleRetry);
 sendButton.addEventListener('click', handleSend);
 sendButton.addEventListener('touchstart', handleSend);
 discardButton.addEventListener('click', resetUI);
