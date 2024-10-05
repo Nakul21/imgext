@@ -6,13 +6,12 @@ const DET_STD = 0.275;
 const VOCAB = "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ!\"#$%&'()*+,-./:;<=>?@[\\]^_`{|}~°£€¥¢฿àâéèêëîïôùûüçÀÂÉÈÊËÎÏÔÙÛÜÇ";
 const TARGET_SIZE = [512, 512];
 
-// DOM Elements
+// DOM Elements (update and add new ones)
 const video = document.getElementById('video');
 const canvas = document.getElementById('canvas');
 const previewCanvas = document.getElementById('previewCanvas');
 const captureButton = document.getElementById('captureButton');
-const confirmButton = document.getElementById('confirmButton');
-const retryButton = document.getElementById('retryButton');
+const captureMenu = document.getElementById('captureMenu');
 const actionButtons = document.getElementById('actionButtons');
 const sendButton = document.getElementById('sendButton');
 const discardButton = document.getElementById('discardButton');
@@ -21,8 +20,6 @@ const apiResponseElement = document.getElementById('apiResponse');
 const loadingIndicator = document.getElementById('loadingIndicator');
 const appContainer = document.getElementById('appContainer');
 const debugToggle = document.getElementById('debugToggle');
-const settingsButton = document.getElementById('settingsButton');
-const settingsMenu = document.getElementById('settingsMenu');
 
 
 let modelLoadingPromise;
@@ -351,7 +348,7 @@ function enableCaptureButton() {
 }
 
 async function handleCapture() {
-    disableCaptureButton();
+     captureButton.disabled = true;
     showLoading('Processing image...');
 
     await ensureModelsLoaded();
@@ -367,30 +364,29 @@ async function handleCapture() {
     img.src = imageDataUrl;
     img.onload = async () => {
         try {
-        extractedData = await detectAndRecognizeText(img);
-        extractedText = extractedData.map(item => item.word).join(' ');
-        resultElement.textContent = `Extracted Text: ${extractedText}`;
-        resultElement.style.display = 'block';
-        
-        captureButton.style.display = 'none';
-        
-        if (debugMode) {
-            previewCanvas.style.display = 'block';
-            confirmButton.style.display = 'inline-block';
-            retryButton.style.display = 'inline-block';
-        } else {
-            actionButtons.style.display = 'block';
+            extractedData = await detectAndRecognizeText(img);
+            extractedText = extractedData.map(item => item.word).join(' ');
+            resultElement.textContent = `Extracted Text: ${extractedText}`;
+            resultElement.style.display = 'block';
+            
+            video.style.display = 'none';
+            canvas.style.display = 'block';
+            
+            if (debugMode) {
+                previewCanvas.style.display = 'block';
+            }
+            
+            actionButtons.style.display = 'flex';
+        } catch (error) {
+            console.error('Error during text extraction:', error);
+            resultElement.textContent = 'Error occurred during text extraction';
+            resultElement.style.display = 'block';
+            resetUI();
+        } finally {
+            captureButton.disabled = false;
+            hideLoading();
+            tf.disposeVariables();
         }
-    } catch (error) {
-        console.error('Error during text extraction:', error);
-        resultElement.textContent = 'Error occurred during text extraction';
-        resultElement.style.display = 'block';
-        resetUI();
-    } finally {
-        enableCaptureButton();
-        hideLoading();
-        tf.disposeVariables();
-    }
     };
 }
 
@@ -464,6 +460,9 @@ function toggleButtons(showActionButtons) {
         actionButtons.style.display = 'none';
     }
 }
+function toggleCaptureMenu() {
+    captureMenu.style.display = captureMenu.style.display === 'none' ? 'block' : 'none';
+}
 
 function toggleDebugMode() {
     debugMode = debugToggle.checked;
@@ -478,10 +477,8 @@ function toggleDebugMode() {
 }
 
 function resetUI() {
-    captureButton.style.display = 'inline-block';
+    captureButton.style.display = 'flex';
     actionButtons.style.display = 'none';
-    confirmButton.style.display = 'none';
-    retryButton.style.display = 'none';
     resultElement.style.display = 'none';
     apiResponseElement.style.display = 'none';
     resultElement.textContent = '';
@@ -496,6 +493,9 @@ function resetUI() {
     } else {
         previewCanvas.style.display = 'none';
     }
+
+    // Ensure the video is visible
+    video.style.display = 'block';
 }
 
 function clearCanvas() {
@@ -552,9 +552,22 @@ function loadOpenCV() {
 }
 
 // Event Listeners
-settingsButton.addEventListener('click', toggleSettingsMenu);
-captureButton.addEventListener('click', handleCapture);
-captureButton.addEventListener('touchstart', handleCapture);
+captureButton.addEventListener('click', () => {
+    if (captureMenu.style.display === 'block') {
+        toggleCaptureMenu();
+    } else {
+        handleCapture();
+    }
+});
+captureButton.addEventListener('touchstart', (e) => {
+    e.preventDefault();
+    if (captureMenu.style.display === 'block') {
+        toggleCaptureMenu();
+    } else {
+        handleCapture();
+    }
+});
+
 confirmButton.addEventListener('click', handleConfirm);
 confirmButton.addEventListener('touchstart', handleConfirm);
 retryButton.addEventListener('click', handleRetry);
@@ -564,6 +577,11 @@ sendButton.addEventListener('touchstart', handleSend);
 discardButton.addEventListener('click', resetUI);
 discardButton.addEventListener('touchstart', resetUI);
 debugToggle.addEventListener('change', toggleDebugMode);
+
+captureButton.querySelector('.arrow').addEventListener('click', (e) => {
+    e.stopPropagation();
+    toggleCaptureMenu();
+});
 
 // Initialize the application
 init();
