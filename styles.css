@@ -46,22 +46,28 @@ button:disabled {
     cursor: not-allowed;
 }
 
-#video, #canvas, #previewCanvas {
+#video {
     width: 100%;
     max-width: 640px;
     height: auto;
     margin-bottom: 20px;
     border-radius: 4px;
-    display: none; /* Hide by default, canvas shown when necessary */
 }
 
 #canvas {
-    display: none; /* Hidden unless processing */
+    display: block; /* Ensure this canvas is visible when capturing */
+    width: 100%;
+    max-width: 640px;
+    height: auto;
+    margin-top: 20px;
+    border-radius: 4px;
 }
 
 #previewCanvas {
-    display: none; /* Shown only in debug mode */
-    margin-top: 10px; /* Adds space when debug mode is on */
+    display: none; /* Hidden unless debug mode */
+    margin-top: 10px; /* Add space when debug mode is on */
+    width: 100%;
+    max-width: 640px;
 }
 
 .result, .api-response {
