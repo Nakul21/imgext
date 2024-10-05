@@ -5,13 +5,13 @@ const DET_MEAN = 0.785;
 const DET_STD = 0.275;
 const VOCAB = "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ!\"#$%&'()*+,-./:;<=>?@[\\]^_`{|}~°£€¥¢฿àâéèêëîïôùûüçÀÂÉÈÊËÎÏÔÙÛÜÇ";
 const TARGET_SIZE = [512, 512];
-
-// DOM Elements (update and add new ones)
+// DOM Elements
 const video = document.getElementById('video');
 const canvas = document.getElementById('canvas');
 const previewCanvas = document.getElementById('previewCanvas');
 const captureButton = document.getElementById('captureButton');
-const captureMenu = document.getElementById('captureMenu');
+const confirmButton = document.getElementById('confirmButton');
+const retryButton = document.getElementById('retryButton');
 const actionButtons = document.getElementById('actionButtons');
 const sendButton = document.getElementById('sendButton');
 const discardButton = document.getElementById('discardButton');
@@ -19,28 +19,24 @@ const resultElement = document.getElementById('result');
 const apiResponseElement = document.getElementById('apiResponse');
 const loadingIndicator = document.getElementById('loadingIndicator');
 const appContainer = document.getElementById('appContainer');
-const debugToggle = document.getElementById('debugToggle');
-
 
 let modelLoadingPromise;
+
 let imageDataUrl = '';
 let extractedText = '';
 let extractedData = [];
 let detectionModel;
 let recognitionModel;
-let debugMode = false;
 
 function showLoading(message) {
     loadingIndicator.textContent = message;
     loadingIndicator.style.display = 'block';
+    //appContainer.style.display = 'none';
 }
 
 function hideLoading() {
     loadingIndicator.style.display = 'none';
-}
-
-function toggleSettingsMenu() {
-    settingsMenu.style.display = settingsMenu.style.display === 'none' ? 'block' : 'none';
+    //appContainer.style.display = 'block';
 }
 
 async function loadModels() {
@@ -112,12 +108,13 @@ function preprocessImageForDetection(imageElement) {
     const ctx = canvas.getContext('2d');
     ctx.drawImage(imageElement, 0, 0, newWidth, newHeight);
 
+    //const targetSize = [512, 512];
     let tensor = tf.tidy( () => { 
         return tf.browser
         .fromPixels(imageElement)
         .resizeNearestNeighbor(TARGET_SIZE)
         .toFloat();
-    });
+        });
     let mean = tf.scalar(255 * DET_MEAN);
     let std = tf.scalar(255 * DET_STD);
     return tensor.sub(mean).div(std).expandDims();
@@ -253,87 +250,93 @@ function getRandomColor() {
 }
 
 async function detectAndRecognizeText(imageElement) {
+    
     if (isMobile()) {
-        useCPU();
+        useCPU(); // Switch to CPU for mobile devices
     }
+    //const size = [512, 512];
     const heatmapCanvas = await getHeatMapFromImage(imageElement);
     const boundingBoxes = extractBoundingBoxesFromHeatmap(heatmapCanvas, TARGET_SIZE);
+    // console.log('extractBoundingBoxesFromHeatmap', boundingBoxes);
 
-    if (debugMode) {
-        previewCanvas.width = TARGET_SIZE[0];
-        previewCanvas.height = TARGET_SIZE[1];
-        const ctx = previewCanvas.getContext('2d');
-        ctx.drawImage(imageElement, 0, 0);
-    }
+    previewCanvas.width = TARGET_SIZE[0];
+    previewCanvas.height = TARGET_SIZE[1];
+    const ctx = previewCanvas.getContext('2d');
+    ctx.drawImage(imageElement, 0, 0);
 
     let fullText = '';
     const crops = [];
     
     try {
-        for (const box of boundingBoxes) {
-            const [x1, y1] = box.coordinates[0];
-            const [x2, y2] = box.coordinates[2];
-            const width = (x2 - x1) * imageElement.width;
-            const height = (y2 - y1) * imageElement.height;
-            const x = x1 * imageElement.width;
-            const y = y1 * imageElement.height;
 
-            if (debugMode) {
-                const ctx = previewCanvas.getContext('2d');
-                ctx.strokeStyle = box.config.stroke;
-                ctx.lineWidth = 2;
-                ctx.strokeRect(x, y, width, height);
+    for (const box of boundingBoxes) {
+        // Draw bounding box
+        const [x1, y1] = box.coordinates[0];
+        const [x2, y2] = box.coordinates[2];
+        const width = (x2 - x1) * imageElement.width;
+        const height = (y2 - y1) * imageElement.height;
+        const x = x1 * imageElement.width;
+        const y = y1 * imageElement.height;
+
+        ctx.strokeStyle = box.config.stroke;
+        ctx.lineWidth = 2;
+        ctx.strokeRect(x, y, width, height);
+
+        // Create crop
+        const croppedCanvas = document.createElement('canvas');
+        croppedCanvas.width = Math.min(width, 128)
+        croppedCanvas.height = Math.min(height, 32);
+        croppedCanvas.getContext('2d').drawImage(
+            imageElement, 
+            x, y, width, height,
+            0, 0, width, height
+        );
+
+        crops.push({
+            canvas: croppedCanvas,
+            bbox: {
+                x: Math.round(x),
+                y: Math.round(y),
+                width: Math.round(width),
+                height: Math.round(height)
             }
+        });
+    }
 
-            const croppedCanvas = document.createElement('canvas');
-            croppedCanvas.width = Math.min(width, 128)
-            croppedCanvas.height = Math.min(height, 32);
-            croppedCanvas.getContext('2d').drawImage(
-                imageElement, 
-                x, y, width, height,
-                0, 0, width, height
-            );
+    // Process crops in batches
+    const batchSize = isMobile() ? 32 : 32;
+    for (let i = 0; i < crops.length; i += batchSize) {
+        const batch = crops.slice(i, i + batchSize);
+        const inputTensor = preprocessImageForRecognition(batch.map(crop => crop.canvas));
 
-            crops.push({
-                canvas: croppedCanvas,
-                bbox: {
-                    x: Math.round(x),
-                    y: Math.round(y),
-                    width: Math.round(width),
-                    height: Math.round(height)
-                }
-            });
-        }
+        const predictions = await recognitionModel.executeAsync(inputTensor);
+        const probabilities = tf.softmax(predictions, -1);
+        const bestPath = tf.unstack(tf.argMax(probabilities, -1), 0);
+        
+        const words = decodeText(bestPath);
 
-        const batchSize = isMobile() ? 32 : 32;
-        for (let i = 0; i < crops.length; i += batchSize) {
-            const batch = crops.slice(i, i + batchSize);
-            const inputTensor = preprocessImageForRecognition(batch.map(crop => crop.canvas));
+        // Associate each word with its bounding box
+        words.split(' ').forEach((word, index) => {
+            if (word && batch[index]) {
+                extractedData.push({
+                    word: word,
+                    boundingBox: batch[index].bbox
+                });
+            }
+        });
 
-            const predictions = await recognitionModel.executeAsync(inputTensor);
-            const probabilities = tf.softmax(predictions, -1);
-            const bestPath = tf.unstack(tf.argMax(probabilities, -1), 0);
-            
-            const words = decodeText(bestPath);
-
-            words.split(' ').forEach((word, index) => {
-                if (word && batch[index]) {
-                    extractedData.push({
-                        word: word,
-                        boundingBox: batch[index].bbox
-                    });
-                }
-            });
-
-            tf.dispose([inputTensor, predictions, probabilities, ...bestPath]);
-        }
+        tf.dispose([inputTensor, predictions, probabilities, ...bestPath]);
+    }
     
-        return extractedData;
+    return extractedData;
+    
     } catch(error) {
+        
         console.error('Error in detectAndRecognizeText:', error);
         throw error;
+   
     } finally {
-        tf.disposeVariables();
+        tf.disposeVariables(); // Clean up any remaining tensors
     }
 }
 
@@ -347,11 +350,12 @@ function enableCaptureButton() {
     captureButton.textContent = 'Capture';
 }
 
+
 async function handleCapture() {
-     captureButton.disabled = true;
+    disableCaptureButton();
     showLoading('Processing image...');
 
-    await ensureModelsLoaded();
+    await ensureModelsLoaded();  // Ensure models are loaded before processing
 
     const targetSize = TARGET_SIZE;
     canvas.width = targetSize[0];
@@ -367,23 +371,16 @@ async function handleCapture() {
             extractedData = await detectAndRecognizeText(img);
             extractedText = extractedData.map(item => item.word).join(' ');
             resultElement.textContent = `Extracted Text: ${extractedText}`;
-            resultElement.style.display = 'block';
             
-            video.style.display = 'none';
-            canvas.style.display = 'block';
-            
-            if (debugMode) {
-                previewCanvas.style.display = 'block';
-            }
-            
-            actionButtons.style.display = 'flex';
+            previewCanvas.style.display = 'block';
+            confirmButton.style.display = 'inline-block';
+            retryButton.style.display = 'inline-block';
+            captureButton.style.display = 'none';
         } catch (error) {
             console.error('Error during text extraction:', error);
             resultElement.textContent = 'Error occurred during text extraction';
-            resultElement.style.display = 'block';
-            resetUI();
         } finally {
-            captureButton.disabled = false;
+            enableCaptureButton();
             hideLoading();
             tf.disposeVariables();
         }
@@ -391,18 +388,17 @@ async function handleCapture() {
 }
 
 function isMobile() {
+    console.log('navigator.userAgent',navigator.userAgent);
     return /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
 }
 
 function handleConfirm() {
-    if (debugMode) {
-        confirmButton.style.display = 'none';
-        retryButton.style.display = 'none';
-        actionButtons.style.display = 'block';
-    }
+    toggleButtons(true);
+    previewCanvas.style.display = 'none';
+    confirmButton.style.display = 'none';
+    retryButton.style.display = 'none';
 }
 
-// Updated handleRetry function
 function handleRetry() {
     resetUI();
 }
@@ -410,8 +406,6 @@ function handleRetry() {
 async function handleSend() {
     if (!extractedText) return;
     apiResponseElement.textContent = 'Submitting...';
-    apiResponseElement.style.display = 'block';
-
     let msgKey = new Date().getTime();
     try {
         const response = await fetch('https://kvdb.io/NyKpFtJ7v392NS8ibLiofx/'+msgKey, {
@@ -437,65 +431,27 @@ async function handleSend() {
         console.error('Error submitting to server:', error);
         apiResponseElement.textContent = 'Error occurred while submitting to server';
     } finally {
-        setTimeout(() => {
-            resetUI();
-            apiResponseElement.style.display = 'none';
-        }, 3000);
+        resetUI();
     }
-}
-
-// Helper function to clear canvases
-function clearCanvas() {
-    const ctx1 = canvas.getContext('2d');
-    const ctx2 = previewCanvas.getContext('2d');
-    ctx1.clearRect(0, 0, canvas.width, canvas.height);
-    ctx2.clearRect(0, 0, previewCanvas.width, previewCanvas.height);
 }
 
 function toggleButtons(showActionButtons) {
     captureButton.style.display = showActionButtons ? 'none' : 'block';
-    if (debugMode || showActionButtons) {
-        actionButtons.style.display = 'block';
-    } else {
-        actionButtons.style.display = 'none';
-    }
-}
-function toggleCaptureMenu() {
-    captureMenu.style.display = captureMenu.style.display === 'none' ? 'block' : 'none';
-}
-
-function toggleDebugMode() {
-    debugMode = debugToggle.checked;
-    
-    if (debugMode) {
-        previewCanvas.style.display = 'block';
-    } else {
-        previewCanvas.style.display = 'none';
-    }
-
-    resetUI();
+    actionButtons.style.display = showActionButtons ? 'block' : 'none';
 }
 
 function resetUI() {
-    captureButton.style.display = 'flex';
-    actionButtons.style.display = 'none';
-    resultElement.style.display = 'none';
-    apiResponseElement.style.display = 'none';
+    toggleButtons(false);
     resultElement.textContent = '';
     apiResponseElement.textContent = '';
     imageDataUrl = '';
     extractedText = '';
     extractedData = [];
     clearCanvas();
-    
-    if (debugMode) {
-        previewCanvas.style.display = 'block';
-    } else {
-        previewCanvas.style.display = 'none';
-    }
-
-    // Ensure the video is visible
-    video.style.display = 'block';
+    previewCanvas.style.display = 'none';
+    confirmButton.style.display = 'none';
+    retryButton.style.display = 'none';
+    captureButton.style.display = 'block';
 }
 
 function clearCanvas() {
@@ -515,31 +471,17 @@ function monitorMemoryUsage() {
     }, 5000);
 }
 
-function toggleDebugMode() {
-    debugMode = debugToggle.checked;
-    
-    if (debugMode) {
-        previewCanvas.style.display = 'block';
-    } else {
-        previewCanvas.style.display = 'none';
-    }
-
-    resetUI(); // Reset UI whenever debug mode is toggled
-}
-
 async function init() {
     if (isMobile()) {
         await tf.ready();
         await tf.setBackend('webgl');
     }
     
-    initializeModelLoading();
-    await setupCamera();
+    initializeModelLoading();  // Start loading models in the background
+    await setupCamera();  // Set up the camera while models are loading
     
     captureButton.disabled = false;
     captureButton.textContent = 'Capture';
-
-    toggleDebugMode();
 }
 
 function loadOpenCV() {
@@ -551,31 +493,17 @@ function loadOpenCV() {
     });
 }
 
-captureButton.addEventListener('click', () => {
-    if (captureMenu.style.display === 'block') {
-        toggleCaptureMenu();
-    } else {
-        handleCapture();
-    }
-});
-captureButton.addEventListener('touchstart', (e) => {
-    e.preventDefault();
-    if (captureMenu.style.display === 'block') {
-        toggleCaptureMenu();
-    } else {
-        handleCapture();
-    }
-});
+// Event Listeners
+captureButton.addEventListener('click', handleCapture);
+captureButton.addEventListener('touchstart', handleCapture);
+confirmButton.addEventListener('click', handleConfirm);
+confirmButton.addEventListener('touchstart', handleConfirm);
+retryButton.addEventListener('click', handleRetry);
+retryButton.addEventListener('touchstart', handleRetry);
 sendButton.addEventListener('click', handleSend);
 sendButton.addEventListener('touchstart', handleSend);
 discardButton.addEventListener('click', resetUI);
 discardButton.addEventListener('touchstart', resetUI);
-debugToggle.addEventListener('change', toggleDebugMode);
-
-captureButton.querySelector('.arrow').addEventListener('click', (e) => {
-    e.stopPropagation();
-    toggleCaptureMenu();
-});
 
 // Initialize the application
 init();
