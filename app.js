@@ -28,6 +28,37 @@ let extractedData = [];
 let detectionModel;
 let recognitionModel;
 
+async function isWebGPUSupported() {
+    if (!navigator.gpu) {
+        return false;
+    }
+    try {
+        const adapter = await navigator.gpu.requestAdapter();
+        if (!adapter) {
+            return false;
+        }
+        const device = await adapter.requestDevice();
+        return !!device;
+    } catch (e) {
+        console.error("Error checking WebGPU support:", e);
+        return false;
+    }
+}
+
+async function fallbackToWebGLorCPU() {
+    if (isMobile()) {
+        try {
+            await tf.setBackend('webgl');
+            console.log('Fallback to WebGL backend successful');
+        } catch (e) {
+            console.error('Failed to set WebGL backend:', e);
+            useCPU();
+        }
+    } else {
+        useCPU();
+    }
+}
+
 function showLoading(message) {
     loadingIndicator.textContent = message;
     loadingIndicator.style.display = 'block';
@@ -472,16 +503,31 @@ function monitorMemoryUsage() {
 }
 
 async function init() {
-    if (isMobile()) {
-        await tf.ready();
-        await tf.setBackend('webgl');
+    showLoading('Initializing...');
+    
+    await tf.ready();
+    
+    if (await isWebGPUSupported()) {
+        console.log('WebGPU is supported. Attempting to set backend...');
+        try {
+            await tf.setBackend('webgpu');
+            console.log('Successfully set WebGPU backend');
+        } catch (e) {
+            console.error('Failed to set WebGPU backend:', e);
+            await fallbackToWebGLorCPU();
+        }
+    } else {
+        console.log('WebGPU is not supported');
+        await fallbackToWebGLorCPU();
     }
     
-    initializeModelLoading();  // Start loading models in the background
-    await setupCamera();  // Set up the camera while models are loading
+    initializeModelLoading();
+    await setupCamera();
     
     captureButton.disabled = false;
     captureButton.textContent = 'Capture';
+    
+    hideLoading();
 }
 
 function loadOpenCV() {
