@@ -2,48 +2,39 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Text Extraction App</title>
     <link rel="stylesheet" href="styles.css">
-    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@3.11.0/dist/tf.min.js"></script>
 </head>
 <body>
-    
     <div id="appContainer" class="app-container">
-    <div class="header">
-        <button id="settingsButton" class="icon-button">⚙️</button>
-    </div>
-    
-    <div id="settingsMenu" class="settings-menu" style="display: none;">
-        <div class="debug-toggle">
-            <label for="debugToggle">Debug Mode:</label>
-            <input type="checkbox" id="debugToggle">
+        <div class="header">
+            <button id="captureButton" class="icon-button">📷<span class="arrow">▼</span></button>
+            <div id="captureMenu" class="capture-menu">
+                <label class="debug-toggle">
+                    <input type="checkbox" id="debugToggle">
+                    Debug Mode
+                </label>
+            </div>
         </div>
+
+        <video id="video" autoplay playsinline></video>
+        <canvas id="canvas" style="display: none;"></canvas>
+        <canvas id="previewCanvas" style="display: none;"></canvas>
+
+        <div id="controls" class="controls">
+            <div id="actionButtons" class="button-group" style="display: none;">
+                <button id="sendButton">Send</button>
+                <button id="discardButton">Discard</button>
+            </div>
+        </div>
+
+        <div id="loadingIndicator" class="loading-indicator" style="display: none;"></div>
+        <div id="result" class="result" style="display: none;"></div>
+        <div id="apiResponse" class="api-response" style="display: none;"></div>
     </div>
 
-    <video id="video" autoplay playsinline></video>
-    <canvas id="canvas" style="display: none;"></canvas>
-    <canvas id="previewCanvas" style="display: none;"></canvas>
-    
-    <div class="controls">
-        <div class="button-group">
-            <button id="captureButton">Capture</button>
-            <button id="confirmButton" style="display: none;">Confirm</button>
-            <button id="retryButton" style="display: none;">Retry</button>
-        </div>
-        
-        <div id="actionButtons" class="button-group" style="display: none;">
-            <button id="sendButton">Send</button>
-            <button id="discardButton">Discard</button>
-        </div>
-    </div>
-
-    <div id="loadingIndicator" style="display: none;"></div>
-    <div id="result" class="result" style="display: none;"></div>
-    <div id="apiResponse" class="api-response" style="display: none;"></div>
-</div>
-    
-     <script src="app.js"></script>
-     <script src="lib/opencv.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs"></script>
+    <script src="app.js"></script>
 </body>
 </html>
