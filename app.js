@@ -477,8 +477,6 @@ function toggleDebugMode() {
     debugMode = debugToggle.checked;
     if (debugMode) {
         previewCanvas.style.display = 'block';
-        confirmButton.style.display = 'inline-block';
-        retryButton.style.display = 'inline-block';
     } else {
         previewCanvas.style.display = 'none';
         confirmButton.style.display = 'none';
