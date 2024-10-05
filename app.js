@@ -364,6 +364,8 @@ async function handleCapture() {
             extractedText = extractedData.map(item => item.word).join(' ');
             resultElement.textContent = `Extracted Text: ${extractedText}`;
             
+            captureButton.style.display = 'none';
+            
             if (debugMode) {
                 previewCanvas.style.display = 'block';
                 confirmButton.style.display = 'inline-block';
@@ -371,10 +373,10 @@ async function handleCapture() {
             } else {
                 actionButtons.style.display = 'block';
             }
-            captureButton.style.display = 'none';
         } catch (error) {
             console.error('Error during text extraction:', error);
             resultElement.textContent = 'Error occurred during text extraction';
+            resetUI();
         } finally {
             enableCaptureButton();
             hideLoading();
@@ -386,15 +388,16 @@ async function handleCapture() {
 function isMobile() {
     return /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
 }
+
 function handleConfirm() {
     if (debugMode) {
-        toggleButtons(true);
-        previewCanvas.style.display = 'none';
         confirmButton.style.display = 'none';
         retryButton.style.display = 'none';
+        actionButtons.style.display = 'block';
     }
 }
 
+// Updated handleRetry function
 function handleRetry() {
     resetUI();
 }
@@ -427,8 +430,16 @@ async function handleSend() {
         console.error('Error submitting to server:', error);
         apiResponseElement.textContent = 'Error occurred while submitting to server';
     } finally {
-        resetUI();
+        setTimeout(resetUI, 3000); // Reset UI after 3 seconds
     }
+}
+
+// Helper function to clear canvases
+function clearCanvas() {
+    const ctx1 = canvas.getContext('2d');
+    const ctx2 = previewCanvas.getContext('2d');
+    ctx1.clearRect(0, 0, canvas.width, canvas.height);
+    ctx2.clearRect(0, 0, previewCanvas.width, previewCanvas.height);
 }
 
 function toggleButtons(showActionButtons) {
@@ -441,19 +452,22 @@ function toggleButtons(showActionButtons) {
 }
 
 function resetUI() {
-    toggleButtons(false);
+    captureButton.style.display = 'block';
+    actionButtons.style.display = 'none';
+    confirmButton.style.display = 'none';
+    retryButton.style.display = 'none';
     resultElement.textContent = '';
     apiResponseElement.textContent = '';
     imageDataUrl = '';
     extractedText = '';
     extractedData = [];
     clearCanvas();
+    
     if (debugMode) {
+        previewCanvas.style.display = 'block';
+    } else {
         previewCanvas.style.display = 'none';
-        confirmButton.style.display = 'none';
-        retryButton.style.display = 'none';
     }
-    captureButton.style.display = 'block';
 }
 
 function clearCanvas() {
@@ -475,16 +489,7 @@ function monitorMemoryUsage() {
 
 function toggleDebugMode() {
     debugMode = debugToggle.checked;
-    if (debugMode) {
-        previewCanvas.style.display = 'block';
-    } else {
-        previewCanvas.style.display = 'none';
-        confirmButton.style.display = 'none';
-        retryButton.style.display = 'none';
-        if (extractedText) {
-            actionButtons.style.display = 'block';
-        }
-    }
+    resetUI(); // Reset UI whenever debug mode is toggled
 }
 
 async function init() {
