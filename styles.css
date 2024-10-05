@@ -32,17 +32,25 @@ body {
     font-size: 24px;
     cursor: pointer;
     padding: 5px;
+    display: flex;
+    align-items: center;
 }
 
-.settings-menu {
+.arrow {
+    font-size: 12px;
+    margin-left: 5px;
+}
+
+.capture-menu {
     position: absolute;
-    top: 50px;
-    left: 10px;
+    top: 100%;
+    left: 0;
     background-color: white;
     border: 1px solid #ddd;
     border-radius: 4px;
     padding: 10px;
     box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+    display: none;
 }
 
 .controls {
@@ -84,6 +92,7 @@ button:disabled {
     max-width: 640px;
     height: auto;
     border-radius: 4px;
+    margin-top: 60px;
 }
 
 .result, .api-response {
@@ -101,6 +110,11 @@ button:disabled {
     display: flex;
     align-items: center;
     gap: 5px;
+}
+
+.loading-indicator {
+    margin-top: 20px;
+    font-weight: bold;
 }
 
 @media (max-width: 600px) {
