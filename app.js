@@ -5,6 +5,7 @@ const DET_MEAN = 0.785;
 const DET_STD = 0.275;
 const VOCAB = "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ!\"#$%&'()*+,-./:;<=>?@[\\]^_`{|}~°£€¥¢฿àâéèêëîïôùûüçÀÂÉÈÊËÎÏÔÙÛÜÇ";
 const TARGET_SIZE = [512, 512];
+
 // DOM Elements
 const video = document.getElementById('video');
 const canvas = document.getElementById('canvas');
@@ -19,24 +20,23 @@ const resultElement = document.getElementById('result');
 const apiResponseElement = document.getElementById('apiResponse');
 const loadingIndicator = document.getElementById('loadingIndicator');
 const appContainer = document.getElementById('appContainer');
+const debugToggle = document.getElementById('debugToggle');
 
 let modelLoadingPromise;
-
 let imageDataUrl = '';
 let extractedText = '';
 let extractedData = [];
 let detectionModel;
 let recognitionModel;
+let debugMode = false;
 
 function showLoading(message) {
     loadingIndicator.textContent = message;
     loadingIndicator.style.display = 'block';
-    //appContainer.style.display = 'none';
 }
 
 function hideLoading() {
     loadingIndicator.style.display = 'none';
-    //appContainer.style.display = 'block';
 }
 
 async function loadModels() {
@@ -108,13 +108,12 @@ function preprocessImageForDetection(imageElement) {
     const ctx = canvas.getContext('2d');
     ctx.drawImage(imageElement, 0, 0, newWidth, newHeight);
 
-    //const targetSize = [512, 512];
     let tensor = tf.tidy( () => { 
         return tf.browser
         .fromPixels(imageElement)
         .resizeNearestNeighbor(TARGET_SIZE)
         .toFloat();
-        });
+    });
     let mean = tf.scalar(255 * DET_MEAN);
     let std = tf.scalar(255 * DET_STD);
     return tensor.sub(mean).div(std).expandDims();
@@ -250,93 +249,87 @@ function getRandomColor() {
 }
 
 async function detectAndRecognizeText(imageElement) {
-    
     if (isMobile()) {
-        useCPU(); // Switch to CPU for mobile devices
+        useCPU();
     }
-    //const size = [512, 512];
     const heatmapCanvas = await getHeatMapFromImage(imageElement);
     const boundingBoxes = extractBoundingBoxesFromHeatmap(heatmapCanvas, TARGET_SIZE);
-    // console.log('extractBoundingBoxesFromHeatmap', boundingBoxes);
 
-    previewCanvas.width = TARGET_SIZE[0];
-    previewCanvas.height = TARGET_SIZE[1];
-    const ctx = previewCanvas.getContext('2d');
-    ctx.drawImage(imageElement, 0, 0);
+    if (debugMode) {
+        previewCanvas.width = TARGET_SIZE[0];
+        previewCanvas.height = TARGET_SIZE[1];
+        const ctx = previewCanvas.getContext('2d');
+        ctx.drawImage(imageElement, 0, 0);
+    }
 
     let fullText = '';
     const crops = [];
     
     try {
+        for (const box of boundingBoxes) {
+            const [x1, y1] = box.coordinates[0];
+            const [x2, y2] = box.coordinates[2];
+            const width = (x2 - x1) * imageElement.width;
+            const height = (y2 - y1) * imageElement.height;
+            const x = x1 * imageElement.width;
+            const y = y1 * imageElement.height;
 
-    for (const box of boundingBoxes) {
-        // Draw bounding box
-        const [x1, y1] = box.coordinates[0];
-        const [x2, y2] = box.coordinates[2];
-        const width = (x2 - x1) * imageElement.width;
-        const height = (y2 - y1) * imageElement.height;
-        const x = x1 * imageElement.width;
-        const y = y1 * imageElement.height;
-
-        ctx.strokeStyle = box.config.stroke;
-        ctx.lineWidth = 2;
-        ctx.strokeRect(x, y, width, height);
-
-        // Create crop
-        const croppedCanvas = document.createElement('canvas');
-        croppedCanvas.width = Math.min(width, 128)
-        croppedCanvas.height = Math.min(height, 32);
-        croppedCanvas.getContext('2d').drawImage(
-            imageElement, 
-            x, y, width, height,
-            0, 0, width, height
-        );
-
-        crops.push({
-            canvas: croppedCanvas,
-            bbox: {
-                x: Math.round(x),
-                y: Math.round(y),
-                width: Math.round(width),
-                height: Math.round(height)
+            if (debugMode) {
+                const ctx = previewCanvas.getContext('2d');
+                ctx.strokeStyle = box.config.stroke;
+                ctx.lineWidth = 2;
+                ctx.strokeRect(x, y, width, height);
             }
-        });
-    }
 
-    // Process crops in batches
-    const batchSize = isMobile() ? 32 : 32;
-    for (let i = 0; i < crops.length; i += batchSize) {
-        const batch = crops.slice(i, i + batchSize);
-        const inputTensor = preprocessImageForRecognition(batch.map(crop => crop.canvas));
+            const croppedCanvas = document.createElement('canvas');
+            croppedCanvas.width = Math.min(width, 128)
+            croppedCanvas.height = Math.min(height, 32);
+            croppedCanvas.getContext('2d').drawImage(
+                imageElement, 
+                x, y, width, height,
+                0, 0, width, height
+            );
 
-        const predictions = await recognitionModel.executeAsync(inputTensor);
-        const probabilities = tf.softmax(predictions, -1);
-        const bestPath = tf.unstack(tf.argMax(probabilities, -1), 0);
-        
-        const words = decodeText(bestPath);
+            crops.push({
+                canvas: croppedCanvas,
+                bbox: {
+                    x: Math.round(x),
+                    y: Math.round(y),
+                    width: Math.round(width),
+                    height: Math.round(height)
+                }
+            });
+        }
 
-        // Associate each word with its bounding box
-        words.split(' ').forEach((word, index) => {
-            if (word && batch[index]) {
-                extractedData.push({
-                    word: word,
-                    boundingBox: batch[index].bbox
-                });
-            }
-        });
+        const batchSize = isMobile() ? 32 : 32;
+        for (let i = 0; i < crops.length; i += batchSize) {
+            const batch = crops.slice(i, i + batchSize);
+            const inputTensor = preprocessImageForRecognition(batch.map(crop => crop.canvas));
 
-        tf.dispose([inputTensor, predictions, probabilities, ...bestPath]);
-    }
+            const predictions = await recognitionModel.executeAsync(inputTensor);
+            const probabilities = tf.softmax(predictions, -1);
+            const bestPath = tf.unstack(tf.argMax(probabilities, -1), 0);
+            
+            const words = decodeText(bestPath);
+
+            words.split(' ').forEach((word, index) => {
+                if (word && batch[index]) {
+                    extractedData.push({
+                        word: word,
+                        boundingBox: batch[index].bbox
+                    });
+                }
+            });
+
+            tf.dispose([inputTensor, predictions, probabilities, ...bestPath]);
+        }
     
-    return extractedData;
-    
+        return extractedData;
     } catch(error) {
-        
         console.error('Error in detectAndRecognizeText:', error);
         throw error;
-   
     } finally {
-        tf.disposeVariables(); // Clean up any remaining tensors
+        tf.disposeVariables();
     }
 }
 
@@ -350,12 +343,11 @@ function enableCaptureButton() {
     captureButton.textContent = 'Capture';
 }
 
-
 async function handleCapture() {
     disableCaptureButton();
     showLoading('Processing image...');
 
-    await ensureModelsLoaded();  // Ensure models are loaded before processing
+    await ensureModelsLoaded();
 
     const targetSize = TARGET_SIZE;
     canvas.width = targetSize[0];
@@ -372,9 +364,13 @@ async function handleCapture() {
             extractedText = extractedData.map(item => item.word).join(' ');
             resultElement.textContent = `Extracted Text: ${extractedText}`;
             
-            previewCanvas.style.display = 'block';
-            confirmButton.style.display = 'inline-block';
-            retryButton.style.display = 'inline-block';
+            if (debugMode) {
+                previewCanvas.style.display = 'block';
+                confirmButton.style.display = 'inline-block';
+                retryButton.style.display = 'inline-block';
+            } else {
+                actionButtons.style.display = 'block';
+            }
             captureButton.style.display = 'none';
         } catch (error) {
             console.error('Error during text extraction:', error);
@@ -388,15 +384,15 @@ async function handleCapture() {
 }
 
 function isMobile() {
-    console.log('navigator.userAgent',navigator.userAgent);
     return /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
 }
-
 function handleConfirm() {
-    toggleButtons(true);
-    previewCanvas.style.display = 'none';
-    confirmButton.style.display = 'none';
-    retryButton.style.display = 'none';
+    if (debugMode) {
+        toggleButtons(true);
+        previewCanvas.style.display = 'none';
+        confirmButton.style.display = 'none';
+        retryButton.style.display = 'none';
+    }
 }
 
 function handleRetry() {
@@ -437,7 +433,11 @@ async function handleSend() {
 
 function toggleButtons(showActionButtons) {
     captureButton.style.display = showActionButtons ? 'none' : 'block';
-    actionButtons.style.display = showActionButtons ? 'block' : 'none';
+    if (debugMode || showActionButtons) {
+        actionButtons.style.display = 'block';
+    } else {
+        actionButtons.style.display = 'none';
+    }
 }
 
 function resetUI() {
@@ -448,9 +448,11 @@ function resetUI() {
     extractedText = '';
     extractedData = [];
     clearCanvas();
-    previewCanvas.style.display = 'none';
-    confirmButton.style.display = 'none';
-    retryButton.style.display = 'none';
+    if (debugMode) {
+        previewCanvas.style.display = 'none';
+        confirmButton.style.display = 'none';
+        retryButton.style.display = 'none';
+    }
     captureButton.style.display = 'block';
 }
 
@@ -471,17 +473,35 @@ function monitorMemoryUsage() {
     }, 5000);
 }
 
+function toggleDebugMode() {
+    debugMode = debugToggle.checked;
+    if (debugMode) {
+        previewCanvas.style.display = 'block';
+        confirmButton.style.display = 'inline-block';
+        retryButton.style.display = 'inline-block';
+    } else {
+        previewCanvas.style.display = 'none';
+        confirmButton.style.display = 'none';
+        retryButton.style.display = 'none';
+        if (extractedText) {
+            actionButtons.style.display = 'block';
+        }
+    }
+}
+
 async function init() {
     if (isMobile()) {
         await tf.ready();
         await tf.setBackend('webgl');
     }
     
-    initializeModelLoading();  // Start loading models in the background
-    await setupCamera();  // Set up the camera while models are loading
+    initializeModelLoading();
+    await setupCamera();
     
     captureButton.disabled = false;
     captureButton.textContent = 'Capture';
+
+    toggleDebugMode();
 }
 
 function loadOpenCV() {
@@ -504,6 +524,7 @@ sendButton.addEventListener('click', handleSend);
 sendButton.addEventListener('touchstart', handleSend);
 discardButton.addEventListener('click', resetUI);
 discardButton.addEventListener('touchstart', resetUI);
+debugToggle.addEventListener('change', toggleDebugMode);
 
 // Initialize the application
 init();
