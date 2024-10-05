@@ -1,35 +1,99 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Text Extraction App</title>
-    <link rel="stylesheet" href="styles.css">
-    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@3.11.0/dist/tf.min.js"></script>
-</head>
-<body>
-    <div id="appContainer" class="app-container">
-        <video id="video" autoplay playsinline></video>
-        <canvas id="canvas" style="display: none;"></canvas>
-        <canvas id="previewCanvas" style="display: none;"></canvas>
-        <div class="controls">
-            <button id="captureButton">Capture</button>
-            <button id="confirmButton" style="display: none;">Confirm</button>
-            <button id="retryButton" style="display: none;">Retry</button>
-            <div id="actionButtons" style="display: none;">
-                <button id="sendButton">Send</button>
-                <button id="discardButton">Discard</button>
-            </div>
-            <div class="debug-toggle">
-                <label for="debugToggle">Debug Mode:</label>
-                <input type="checkbox" id="debugToggle">
-            </div>
-        </div>
-        <div id="loadingIndicator" style="display: none;"></div>
-        <div id="result" class="result"></div>
-        <div id="apiResponse" class="api-response"></div>
-    </div>
-    <script src="app.js"></script>
-     <script src="lib/opencv.js"></script>
-</body>
-</html>
+body {
+    font-family: Arial, sans-serif;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    height: 100vh;
+    margin: 0;
+    background-color: #f0f0f0;
+}
+
+.app-container {
+    max-width: 800px;
+    width: 100%;
+    padding: 20px;
+    box-sizing: border-box;
+    display: flex;
+    flex-direction: column;
+    align-items: center; /* Center the elements */
+}
+
+.controls {
+    margin-top: 20px; /* Add space between controls and canvas */
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+}
+
+button {
+    padding: 10px 20px;
+    margin: 5px; /* Space between buttons */
+    font-size: 16px;
+    cursor: pointer;
+    background-color: #4CAF50;
+    color: white;
+    border: none;
+    border-radius: 4px;
+    transition: background-color 0.3s;
+}
+
+button:hover {
+    background-color: #45a049;
+}
+
+button:disabled {
+    background-color: #cccccc;
+    cursor: not-allowed;
+}
+
+#video {
+    width: 100%;
+    max-width: 640px;
+    height: auto;
+    margin-bottom: 20px;
+    border-radius: 4px;
+}
+
+#canvas {
+    display: block; /* Ensure this canvas is visible when capturing */
+    width: 100%;
+    max-width: 640px;
+    height: auto;
+    margin-top: 20px;
+    border-radius: 4px;
+}
+
+#previewCanvas {
+    display: none; /* Hidden unless debug mode */
+    margin-top: 10px; /* Add space when debug mode is on */
+    width: 100%;
+    max-width: 640px;
+}
+
+.result, .api-response {
+    margin-top: 20px;
+    padding: 10px;
+    background-color: #fff;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    word-wrap: break-word;
+}
+
+.debug-toggle {
+    margin-top: 10px; /* Small space around the debug toggle */
+}
+
+@media (max-width: 600px) {
+    .app-container {
+        padding: 10px;
+    }
+
+    button {
+        padding: 8px 16px;
+        font-size: 14px;
+    }
+
+    #video, #canvas, #previewCanvas {
+        max-width: 100%;
+    }
+}
