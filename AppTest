@@ -1,11 +1,23 @@
+// ... (keep all the existing constants and variables)
 
-const settingsButton = document.getElementById('settingsButton');
-const settingsMenu = document.getElementById('settingsMenu');
+// DOM Elements (update and add new ones)
+const video = document.getElementById('video');
+const canvas = document.getElementById('canvas');
+const previewCanvas = document.getElementById('previewCanvas');
+const captureButton = document.getElementById('captureButton');
+const captureMenu = document.getElementById('captureMenu');
+const actionButtons = document.getElementById('actionButtons');
+const sendButton = document.getElementById('sendButton');
+const discardButton = document.getElementById('discardButton');
+const resultElement = document.getElementById('result');
+const apiResponseElement = document.getElementById('apiResponse');
+const loadingIndicator = document.getElementById('loadingIndicator');
+const appContainer = document.getElementById('appContainer');
+const debugToggle = document.getElementById('debugToggle');
 
-function toggleSettingsMenu() {
-    settingsMenu.style.display = settingsMenu.style.display === 'none' ? 'block' : 'none';
-}
+// ... (keep all the existing functions)
 
+// Update the toggleDebugMode function
 function toggleDebugMode() {
     debugMode = debugToggle.checked;
     
@@ -18,11 +30,15 @@ function toggleDebugMode() {
     resetUI();
 }
 
+// Add a new function to toggle the capture menu
+function toggleCaptureMenu() {
+    captureMenu.style.display = captureMenu.style.display === 'none' ? 'block' : 'none';
+}
+
+// Update the resetUI function
 function resetUI() {
-    captureButton.style.display = 'inline-block';
+    captureButton.style.display = 'flex';
     actionButtons.style.display = 'none';
-    confirmButton.style.display = 'none';
-    retryButton.style.display = 'none';
     resultElement.style.display = 'none';
     apiResponseElement.style.display = 'none';
     resultElement.textContent = '';
@@ -37,77 +53,84 @@ function resetUI() {
     } else {
         previewCanvas.style.display = 'none';
     }
+
+    // Ensure the video is visible
+    video.style.display = 'block';
 }
 
+// Update the handleCapture function
 async function handleCapture() {
-    disableCaptureButton();
+    captureButton.disabled = true;
     showLoading('Processing image...');
 
     await ensureModelsLoaded();
 
+    const targetSize = TARGET_SIZE;
+    canvas.width = targetSize[0];
+    canvas.height = targetSize[1];
+    canvas.getContext('2d').drawImage(video, 0, 0, canvas.width, canvas.height);
 
-    try {
-        extractedData = await detectAndRecognizeText(img);
-        extractedText = extractedData.map(item => item.word).join(' ');
-        resultElement.textContent = `Extracted Text: ${extractedText}`;
-        resultElement.style.display = 'block';
-        
-        captureButton.style.display = 'none';
-        
-        if (debugMode) {
-            previewCanvas.style.display = 'block';
-            confirmButton.style.display = 'inline-block';
-            retryButton.style.display = 'inline-block';
-        } else {
-            actionButtons.style.display = 'block';
-        }
-    } catch (error) {
-        console.error('Error during text extraction:', error);
-        resultElement.textContent = 'Error occurred during text extraction';
-        resultElement.style.display = 'block';
-        resetUI();
-    } finally {
-        enableCaptureButton();
-        hideLoading();
-        tf.disposeVariables();
-    }
-}
-
-async function handleSend() {
-    if (!extractedText) return;
-    apiResponseElement.textContent = 'Submitting...';
-    apiResponseElement.style.display = 'block';
-    let msgKey = new Date().getTime();
-    try {
-        
-        apiResponseElement.textContent = 'Submitted the extract with ID : ' + msgKey;
-        
-    } catch (error) {
-        console.error('Error submitting to server:', error);
-        apiResponseElement.textContent = 'Error occurred while submitting to server';
-    } finally {
-        setTimeout(() => {
+    imageDataUrl = canvas.toDataURL('image/jpeg', isMobile() ? 0.7 : 0.9);
+    
+    const img = new Image();
+    img.src = imageDataUrl;
+    img.onload = async () => {
+        try {
+            extractedData = await detectAndRecognizeText(img);
+            extractedText = extractedData.map(item => item.word).join(' ');
+            resultElement.textContent = `Extracted Text: ${extractedText}`;
+            resultElement.style.display = 'block';
+            
+            video.style.display = 'none';
+            canvas.style.display = 'block';
+            
+            if (debugMode) {
+                previewCanvas.style.display = 'block';
+            }
+            
+            actionButtons.style.display = 'flex';
+        } catch (error) {
+            console.error('Error during text extraction:', error);
+            resultElement.textContent = 'Error occurred during text extraction';
+            resultElement.style.display = 'block';
             resetUI();
-            apiResponseElement.style.display = 'none';
-        }, 3000);
-    }
+        } finally {
+            captureButton.disabled = false;
+            hideLoading();
+            tf.disposeVariables();
+        }
+    };
 }
 
-
-// Event Listeners
-settingsButton.addEventListener('click', toggleSettingsMenu);
-captureButton.addEventListener('click', handleCapture);
-captureButton.addEventListener('touchstart', handleCapture);
-confirmButton.addEventListener('click', handleConfirm);
-confirmButton.addEventListener('touchstart', handleConfirm);
-retryButton.addEventListener('click', handleRetry);
-retryButton.addEventListener('touchstart', handleRetry);
+// Event Listeners (update and add new ones)
+captureButton.addEventListener('click', () => {
+    if (captureMenu.style.display === 'block') {
+        toggleCaptureMenu();
+    } else {
+        handleCapture();
+    }
+});
+captureButton.addEventListener('touchstart', (e) => {
+    e.preventDefault();
+    if (captureMenu.style.display === 'block') {
+        toggleCaptureMenu();
+    } else {
+        handleCapture();
+    }
+});
 sendButton.addEventListener('click', handleSend);
 sendButton.addEventListener('touchstart', handleSend);
 discardButton.addEventListener('click', resetUI);
 discardButton.addEventListener('touchstart', resetUI);
 debugToggle.addEventListener('change', toggleDebugMode);
 
+// Add event listener for the capture menu toggle
+captureButton.querySelector('.arrow').addEventListener('click', (e) => {
+    e.stopPropagation();
+    toggleCaptureMenu();
+});
+
 // Initialize the application
 init();
 
+// ... (keep the Service Worker Registration)
