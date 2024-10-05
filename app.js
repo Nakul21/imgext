@@ -21,6 +21,9 @@ const apiResponseElement = document.getElementById('apiResponse');
 const loadingIndicator = document.getElementById('loadingIndicator');
 const appContainer = document.getElementById('appContainer');
 const debugToggle = document.getElementById('debugToggle');
+const settingsButton = document.getElementById('settingsButton');
+const settingsMenu = document.getElementById('settingsMenu');
+
 
 let modelLoadingPromise;
 let imageDataUrl = '';
@@ -37,6 +40,10 @@ function showLoading(message) {
 
 function hideLoading() {
     loadingIndicator.style.display = 'none';
+}
+
+function toggleSettingsMenu() {
+    settingsMenu.style.display = settingsMenu.style.display === 'none' ? 'block' : 'none';
 }
 
 async function loadModels() {
@@ -360,28 +367,30 @@ async function handleCapture() {
     img.src = imageDataUrl;
     img.onload = async () => {
         try {
-            extractedData = await detectAndRecognizeText(img);
-            extractedText = extractedData.map(item => item.word).join(' ');
-            resultElement.textContent = `Extracted Text: ${extractedText}`;
-            
-            captureButton.style.display = 'none';
-            
-            if (debugMode) {
-                previewCanvas.style.display = 'block';
-                confirmButton.style.display = 'inline-block';
-                retryButton.style.display = 'inline-block';
-            } else {
-                actionButtons.style.display = 'block';
-            }
-        } catch (error) {
-            console.error('Error during text extraction:', error);
-            resultElement.textContent = 'Error occurred during text extraction';
-            resetUI();
-        } finally {
-            enableCaptureButton();
-            hideLoading();
-            tf.disposeVariables();
+        extractedData = await detectAndRecognizeText(img);
+        extractedText = extractedData.map(item => item.word).join(' ');
+        resultElement.textContent = `Extracted Text: ${extractedText}`;
+        resultElement.style.display = 'block';
+        
+        captureButton.style.display = 'none';
+        
+        if (debugMode) {
+            previewCanvas.style.display = 'block';
+            confirmButton.style.display = 'inline-block';
+            retryButton.style.display = 'inline-block';
+        } else {
+            actionButtons.style.display = 'block';
         }
+    } catch (error) {
+        console.error('Error during text extraction:', error);
+        resultElement.textContent = 'Error occurred during text extraction';
+        resultElement.style.display = 'block';
+        resetUI();
+    } finally {
+        enableCaptureButton();
+        hideLoading();
+        tf.disposeVariables();
+    }
     };
 }
 
@@ -405,6 +414,8 @@ function handleRetry() {
 async function handleSend() {
     if (!extractedText) return;
     apiResponseElement.textContent = 'Submitting...';
+    apiResponseElement.style.display = 'block';
+
     let msgKey = new Date().getTime();
     try {
         const response = await fetch('https://kvdb.io/NyKpFtJ7v392NS8ibLiofx/'+msgKey, {
@@ -430,7 +441,10 @@ async function handleSend() {
         console.error('Error submitting to server:', error);
         apiResponseElement.textContent = 'Error occurred while submitting to server';
     } finally {
-        setTimeout(resetUI, 1000); // Reset UI after 3 seconds
+        setTimeout(() => {
+            resetUI();
+            apiResponseElement.style.display = 'none';
+        }, 3000);
     }
 }
 
@@ -451,11 +465,25 @@ function toggleButtons(showActionButtons) {
     }
 }
 
+function toggleDebugMode() {
+    debugMode = debugToggle.checked;
+    
+    if (debugMode) {
+        previewCanvas.style.display = 'block';
+    } else {
+        previewCanvas.style.display = 'none';
+    }
+
+    resetUI();
+}
+
 function resetUI() {
-    captureButton.style.display = 'block';
+    captureButton.style.display = 'inline-block';
     actionButtons.style.display = 'none';
     confirmButton.style.display = 'none';
     retryButton.style.display = 'none';
+    resultElement.style.display = 'none';
+    apiResponseElement.style.display = 'none';
     resultElement.textContent = '';
     apiResponseElement.textContent = '';
     imageDataUrl = '';
@@ -524,6 +552,7 @@ function loadOpenCV() {
 }
 
 // Event Listeners
+settingsButton.addEventListener('click', toggleSettingsMenu);
 captureButton.addEventListener('click', handleCapture);
 captureButton.addEventListener('touchstart', handleCapture);
 confirmButton.addEventListener('click', handleConfirm);
