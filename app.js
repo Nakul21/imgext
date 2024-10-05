@@ -430,7 +430,7 @@ async function handleSend() {
         console.error('Error submitting to server:', error);
         apiResponseElement.textContent = 'Error occurred while submitting to server';
     } finally {
-        setTimeout(resetUI, 3000); // Reset UI after 3 seconds
+        setTimeout(resetUI, 1000); // Reset UI after 3 seconds
     }
 }
 
@@ -492,7 +492,6 @@ function toggleDebugMode() {
     
     if (debugMode) {
         previewCanvas.style.display = 'block';
-        previewCanvas.style.height = 'auto'; // Reset in case previously hidden
     } else {
         previewCanvas.style.display = 'none';
     }
