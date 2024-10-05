@@ -489,6 +489,14 @@ function monitorMemoryUsage() {
 
 function toggleDebugMode() {
     debugMode = debugToggle.checked;
+    
+    if (debugMode) {
+        previewCanvas.style.display = 'block';
+        previewCanvas.style.height = 'auto'; // Reset in case previously hidden
+    } else {
+        previewCanvas.style.display = 'none';
+    }
+
     resetUI(); // Reset UI whenever debug mode is toggled
 }
 
