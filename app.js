@@ -143,7 +143,7 @@ function preprocessImageForDetection(imageElement) {
     let tensor = tf.tidy( () => { 
         return tf.browser
         .fromPixels(imageElement)
-        .resizeBilinear(TARGET_SIZE, true)
+        .resizeBilinear(TARGET_SIZE, true, true)
        // .resizeNearestNeighbor(TARGET_SIZE)
         .toFloat();
         });
@@ -177,7 +177,7 @@ function preprocessImageForRecognition(crops) {
         return tf.tidy(() => {
             return tf.browser
                 .fromPixels(crop)
-                .resizeBilinear(resizeTarget,true)
+                .resizeBilinear(resizeTarget,true,true)
                 //.resizeNearestNeighbor(resizeTarget)
                 .pad(paddingTarget, 0)
                 .toFloat()
