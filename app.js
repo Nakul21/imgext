@@ -46,7 +46,7 @@ async function isWebGPUSupported() {
 }
 
 async function fallbackToWebGLorCPU() {
-    if (isMobile()) {
+   // if (isMobile()) {
         try {
             await tf.setBackend('webgl');
             console.log('Fallback to WebGL backend successful');
@@ -54,9 +54,9 @@ async function fallbackToWebGLorCPU() {
             console.error('Failed to set WebGL backend:', e);
             useCPU();
         }
-    } else {
-        useCPU();
-    }
+  //  } else {
+  //      useCPU();
+ //   }
 }
 
 function showLoading(message) {
