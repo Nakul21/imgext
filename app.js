@@ -157,7 +157,7 @@ function preprocessImageForDetection(imageElement) {
     return tensor.sub(mean).div(std).expandDims();
 }
 
-async function preprocessImageForRecognition(crops) {
+function preprocessImageForRecognition(crops) {
     const targetSize = [32, 128];
     const tensors = [];
 
