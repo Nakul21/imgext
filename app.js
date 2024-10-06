@@ -19,6 +19,7 @@ const resultElement = document.getElementById('result');
 const apiResponseElement = document.getElementById('apiResponse');
 const loadingIndicator = document.getElementById('loadingIndicator');
 const appContainer = document.getElementById('appContainer');
+const pica = new Pica();
 
 let modelLoadingPromise;
 
@@ -119,7 +120,7 @@ async function setupCamera() {
     }
 }
 
-function preprocessImageForDetection(imageElement) {
+async function preprocessImageForDetection(imageElement) {
     const maxSize = isMobile() ? 512 : 2048; 
     const originalWidth = imageElement.width;
     const originalHeight = imageElement.height;
@@ -133,31 +134,33 @@ function preprocessImageForDetection(imageElement) {
         newWidth = (originalWidth / originalHeight) * newHeight;
     }
 
+    // Create an offscreen canvas for resizing
     const canvas = document.createElement('canvas');
     canvas.width = newWidth;
     canvas.height = newHeight;
-    const ctx = canvas.getContext('2d');
-    ctx.drawImage(imageElement, 0, 0, newWidth, newHeight);
 
+    // Resize the image using Pica
+    await pica.resize(imageElement, canvas);
 
-    const resizedImage = await sharp(imageElement)
-    .resize(newWidth, newHeight)
-    .toBuffer();
-    //const targetSize = [512, 512];
-    let tensor = tf.tidy( () => { 
+    // After resizing, we will pass the resized canvas to TensorFlow.js
+    const resizedImageData = canvas;
+
+    // Convert the resized image to a tensor using TensorFlow.js
+    let tensor = tf.tidy(() => {
         return tf.browser
-          .fromPixels(resizedImage)
-        //.fromPixels(imageElement)
-        //.resizeBilinear(TARGET_SIZE, false, true)
-       // .resizeNearestNeighbor(TARGET_SIZE)
-        .toFloat();
-        });
+            .fromPixels(resizedImageData)
+            .resizeBilinear([512, 512]) // resize to target size for model
+            .toFloat();
+    });
+
+    // Normalize tensor based on your specific model's preprocessing needs
     let mean = tf.scalar(255 * DET_MEAN);
     let std = tf.scalar(255 * DET_STD);
+
     return tensor.sub(mean).div(std).expandDims();
 }
 
-function preprocessImageForRecognition(crops) {
+async function preprocessImageForRecognition(crops) {
     const targetSize = [32, 128];
     const tensors = [];
 
@@ -166,6 +169,7 @@ function preprocessImageForRecognition(crops) {
         let w = crop.width;
         let resizeTarget, paddingTarget;
         let aspectRatio = targetSize[1] / targetSize[0];
+        
         if (aspectRatio * h > w) {
             resizeTarget = [targetSize[0], Math.round((targetSize[0] * w) / h)];
             paddingTarget = [
@@ -182,26 +186,41 @@ function preprocessImageForRecognition(crops) {
             ];
         }
 
-        const resizedImage = await sharp(crop.canvas)
-            .resize(resizeTarget[0], resizeTarget[1])
-            .toBuffer();
+        // Create a canvas to handle the resizing
+        const canvas = document.createElement('canvas');
+        canvas.width = resizeTarget[1];
+        canvas.height = resizeTarget[0];
+        
+        const cropCanvas = crop.canvas; // Assuming each crop has a canvas element
+
+        // Resize the image using Pica
+        await pica.resize(cropCanvas, canvas);
+
+        // Now that we have the resized image on the canvas, process it with TensorFlow.js
+        const resizedImage = canvas; // The canvas contains the resized image now
 
         const tensor = tf.tidy(() => {
             return tf.browser
                 .fromPixels(resizedImage)
-                .pad(paddingTarget, 0)
+                .pad(paddingTarget, 0) // Pad the image as needed
                 .toFloat()
-                .expandDims();
+                .expandDims(); // Add a batch dimension
         });
 
         tensors.push(tensor);
     }
 
+    // Concatenate all tensors along the batch dimension
     const tensor = tf.concat(tensors);
+
+    // Normalize the tensor
     let mean = tf.scalar(255 * REC_MEAN);
     let std = tf.scalar(255 * REC_STD);
+
     return tensor.sub(mean).div(std);
 }
+
+
 
 function decodeText(bestPath) {
     const blank = 126;
