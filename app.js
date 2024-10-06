@@ -139,11 +139,16 @@ function preprocessImageForDetection(imageElement) {
     const ctx = canvas.getContext('2d');
     ctx.drawImage(imageElement, 0, 0, newWidth, newHeight);
 
+
+    const resizedImage = await sharp(imageElement)
+    .resize(newWidth, newHeight)
+    .toBuffer();
     //const targetSize = [512, 512];
     let tensor = tf.tidy( () => { 
         return tf.browser
-        .fromPixels(imageElement)
-        .resizeBilinear(TARGET_SIZE, false, true)
+          .fromPixels(resizedImage)
+        //.fromPixels(imageElement)
+        //.resizeBilinear(TARGET_SIZE, false, true)
        // .resizeNearestNeighbor(TARGET_SIZE)
         .toFloat();
         });
@@ -152,9 +157,11 @@ function preprocessImageForDetection(imageElement) {
     return tensor.sub(mean).div(std).expandDims();
 }
 
-function preprocessImageForRecognition(crops) {
+async function preprocessImageForRecognition(crops) {
     const targetSize = [32, 128];
-    const tensors = crops.map((crop) => {
+    const tensors = [];
+
+    for (const crop of crops) {
         let h = crop.height;
         let w = crop.width;
         let resizeTarget, paddingTarget;
@@ -174,16 +181,22 @@ function preprocessImageForRecognition(crops) {
                 [0, 0],
             ];
         }
-        return tf.tidy(() => {
+
+        const resizedImage = await sharp(crop.canvas)
+            .resize(resizeTarget[0], resizeTarget[1])
+            .toBuffer();
+
+        const tensor = tf.tidy(() => {
             return tf.browser
-                .fromPixels(crop)
-                .resizeBilinear(resizeTarget,false,true)
-                //.resizeNearestNeighbor(resizeTarget)
+                .fromPixels(resizedImage)
                 .pad(paddingTarget, 0)
                 .toFloat()
                 .expandDims();
         });
-    });
+
+        tensors.push(tensor);
+    }
+
     const tensor = tf.concat(tensors);
     let mean = tf.scalar(255 * REC_MEAN);
     let std = tf.scalar(255 * REC_STD);
