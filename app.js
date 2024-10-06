@@ -143,7 +143,8 @@ function preprocessImageForDetection(imageElement) {
     let tensor = tf.tidy( () => { 
         return tf.browser
         .fromPixels(imageElement)
-        .resizeNearestNeighbor(TARGET_SIZE)
+        .resizeBilinear(TARGET_SIZE)
+       // .resizeNearestNeighbor(TARGET_SIZE)
         .toFloat();
         });
     let mean = tf.scalar(255 * DET_MEAN);
@@ -176,7 +177,8 @@ function preprocessImageForRecognition(crops) {
         return tf.tidy(() => {
             return tf.browser
                 .fromPixels(crop)
-                .resizeNearestNeighbor(resizeTarget)
+                .resizeBilinear(resizeTarget)
+                //.resizeNearestNeighbor(resizeTarget)
                 .pad(paddingTarget, 0)
                 .toFloat()
                 .expandDims();
@@ -420,7 +422,8 @@ async function handleCapture() {
 
 function isMobile() {
     console.log('navigator.userAgent',navigator.userAgent);
-    return /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+    //return /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+    reurn false;
 }
 
 function handleConfirm() {
