@@ -164,8 +164,22 @@ async function preprocessImageForDetection(imageElement) {
     return tensor.sub(mean).div(std).expandDims();
 }
 
+// Function to create canvas for each crop
+function createCropCanvas(imageElement, x, y, width, height) {
+    const canvas = document.createElement('canvas');
+    canvas.width = width;
+    canvas.height = height;
+    
+    const ctx = canvas.getContext('2d');
+    // Draw the cropped portion of the image onto the canvas
+    ctx.drawImage(imageElement, x, y, width, height, 0, 0, width, height);
+    
+    return canvas;
+}
+
+// Function to preprocess each crop for recognition
 async function preprocessImageForRecognition(crops) {
-    const targetSize = [32, 128];
+    const targetSize = [32, 128]; // Target dimensions (height, width)
     const tensors = [];
 
     for (const crop of crops) {
@@ -173,7 +187,8 @@ async function preprocessImageForRecognition(crops) {
         let w = crop.width;
         let resizeTarget, paddingTarget;
         let aspectRatio = targetSize[1] / targetSize[0];
-        
+
+        // Calculate resize target and padding target
         if (aspectRatio * h > w) {
             resizeTarget = [targetSize[0], Math.round((targetSize[0] * w) / h)];
             paddingTarget = [
@@ -194,22 +209,14 @@ async function preprocessImageForRecognition(crops) {
         const canvas = document.createElement('canvas');
         canvas.width = resizeTarget[1];
         canvas.height = resizeTarget[0];
-        
-        const cropCanvas = crop.canvas; // Assuming each crop has a valid canvas element
+
+        const cropCanvas = crop.canvas; // Valid crop canvas should be passed
         if (!cropCanvas) {
             console.error('Invalid cropCanvas. Ensure the crop object has a valid canvas element.');
             continue;
         }
 
-        // Check if cropCanvas has an image to work with
-        const ctx = canvas.getContext('2d');
-        const cropCtx = cropCanvas.getContext('2d');
-        if (!cropCtx) {
-            console.error('cropCanvas does not have a valid 2D context.');
-            continue;
-        }
-
-        // Resize the image using Pica
+        // Resize the image using Pica (optional, depending on your library)
         await pica.resize(cropCanvas, canvas);
 
         // Ensure the resized canvas is fully processed before converting to tensor
@@ -245,8 +252,6 @@ async function preprocessImageForRecognition(crops) {
 
     return tensor.sub(mean).div(std);
 }
-
-
 
 
 function decodeText(bestPath) {
