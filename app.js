@@ -155,6 +155,7 @@ async function preprocessImageForDetection(imageElement) {
             // .resizeBilinear([512, 512]) // Uncomment if model expects a fixed size
             .toFloat();
     });
+    console.log('tensor',tensor);
 
     // Normalize tensor based on your specific model's preprocessing needs
     let mean = tf.scalar(255 * DET_MEAN);
