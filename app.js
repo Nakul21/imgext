@@ -195,23 +195,45 @@ async function preprocessImageForRecognition(crops) {
         canvas.width = resizeTarget[1];
         canvas.height = resizeTarget[0];
         
-        const cropCanvas = crop.canvas; // Assuming each crop has a canvas element
-      
+        const cropCanvas = crop.canvas; // Assuming each crop has a valid canvas element
+        if (!cropCanvas) {
+            console.error('Invalid cropCanvas. Ensure the crop object has a valid canvas element.');
+            continue;
+        }
+
+        // Check if cropCanvas has an image to work with
+        const ctx = canvas.getContext('2d');
+        const cropCtx = cropCanvas.getContext('2d');
+        if (!cropCtx) {
+            console.error('cropCanvas does not have a valid 2D context.');
+            continue;
+        }
+
         // Resize the image using Pica
         await pica.resize(cropCanvas, canvas);
 
-        // Now that we have the resized image on the canvas, process it with TensorFlow.js
-        const resizedImage = canvas; // The canvas contains the resized image now
+        // Ensure the resized canvas is fully processed before converting to tensor
+        const resizedImage = canvas;
 
-        const tensor = tf.tidy(() => {
-            return tf.browser
-                .fromPixels(resizedImage)
-                .pad(paddingTarget, 0) // Pad the image as needed
-                .toFloat()
-                .expandDims(); // Add a batch dimension
-        });
+        try {
+            const tensor = tf.tidy(() => {
+                // Convert the canvas image to a tensor and pad it
+                return tf.browser
+                    .fromPixels(resizedImage)
+                    .pad(paddingTarget, 0) // Pad the image as needed
+                    .toFloat()
+                    .expandDims(); // Add a batch dimension
+            });
 
-        tensors.push(tensor);
+            tensors.push(tensor);
+        } catch (error) {
+            console.error('Error during tensor creation:', error);
+        }
+    }
+
+    if (tensors.length === 0) {
+        console.error('No valid tensors were generated.');
+        return null;
     }
 
     // Concatenate all tensors along the batch dimension
@@ -223,6 +245,7 @@ async function preprocessImageForRecognition(crops) {
 
     return tensor.sub(mean).div(std);
 }
+
 
 
 
