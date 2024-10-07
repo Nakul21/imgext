@@ -196,7 +196,7 @@ async function preprocessImageForRecognition(crops) {
         canvas.height = resizeTarget[0];
         
         const cropCanvas = crop.canvas; // Assuming each crop has a canvas element
-
+      
         // Resize the image using Pica
         await pica.resize(cropCanvas, canvas);
 
@@ -247,7 +247,7 @@ function decodeText(bestPath) {
 }
 
 async function getHeatMapFromImage(imageObject) {
-    let tensor = preprocessImageForDetection(imageObject);
+    let tensor = await preprocessImageForDetection(imageObject);
     console.log('tensor',tensor);
     let prediction = await detectionModel.execute({'x' : tensor});
     prediction = tf.squeeze(prediction, 0);
@@ -377,7 +377,7 @@ async function detectAndRecognizeText(imageElement) {
     const batchSize = isMobile() ? 32 : 32;
     for (let i = 0; i < crops.length; i += batchSize) {
         const batch = crops.slice(i, i + batchSize);
-        const inputTensor = preprocessImageForRecognition(batch.map(crop => crop.canvas));
+        const inputTensor = await preprocessImageForRecognition(batch.map(crop => crop.canvas));
 
         const predictions = await recognitionModel.executeAsync(inputTensor);
         const probabilities = tf.softmax(predictions, -1);
