@@ -177,18 +177,13 @@ function createCropCanvas(imageElement, x, y, width, height) {
     return canvas;
 }
 
-// Function to preprocess each crop for recognition
-async function preprocessImageForRecognition(crops) {
-    const targetSize = [32, 128]; // Target dimensions (height, width)
-    const tensors = [];
-
-    for (const crop of crops) {
+function preprocessImageForRecognition(crops) {
+    const targetSize = [32, 128];
+    const tensors = crops.map((crop) => {
         let h = crop.height;
         let w = crop.width;
         let resizeTarget, paddingTarget;
         let aspectRatio = targetSize[1] / targetSize[0];
-
-        // Calculate resize target and padding target
         if (aspectRatio * h > w) {
             resizeTarget = [targetSize[0], Math.round((targetSize[0] * w) / h)];
             paddingTarget = [
@@ -204,52 +199,18 @@ async function preprocessImageForRecognition(crops) {
                 [0, 0],
             ];
         }
-
-        // Create a canvas to handle the resizing
-        const canvas = document.createElement('canvas');
-        canvas.width = resizeTarget[1];
-        canvas.height = resizeTarget[0];
-
-        const cropCanvas = crop.canvas; // Valid crop canvas should be passed
-        if (!cropCanvas) {
-            console.error('Invalid cropCanvas. Ensure the crop object has a valid canvas element.');
-            continue;
-        }
-
-        // Resize the image using Pica (optional, depending on your library)
-        await pica.resize(cropCanvas, canvas);
-
-        // Ensure the resized canvas is fully processed before converting to tensor
-        const resizedImage = canvas;
-
-        try {
-            const tensor = tf.tidy(() => {
-                // Convert the canvas image to a tensor and pad it
-                return tf.browser
-                    .fromPixels(resizedImage)
-                    .pad(paddingTarget, 0) // Pad the image as needed
-                    .toFloat()
-                    .expandDims(); // Add a batch dimension
-            });
-
-            tensors.push(tensor);
-        } catch (error) {
-            console.error('Error during tensor creation:', error);
-        }
-    }
-
-    if (tensors.length === 0) {
-        console.error('No valid tensors were generated.');
-        return null;
-    }
-
-    // Concatenate all tensors along the batch dimension
+        return tf.tidy(() => {
+            return tf.browser
+                .fromPixels(crop)
+                .resizeNearestNeighbor(resizeTarget)
+                .pad(paddingTarget, 0)
+                .toFloat()
+                .expandDims();
+        });
+    });
     const tensor = tf.concat(tensors);
-
-    // Normalize the tensor
     let mean = tf.scalar(255 * REC_MEAN);
     let std = tf.scalar(255 * REC_STD);
-
     return tensor.sub(mean).div(std);
 }
 
