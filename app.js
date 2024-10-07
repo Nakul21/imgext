@@ -164,22 +164,11 @@ async function preprocessImageForDetection(imageElement) {
     return tensor.sub(mean).div(std).expandDims();
 }
 
-// Function to create canvas for each crop
-function createCropCanvas(imageElement, x, y, width, height) {
-    const canvas = document.createElement('canvas');
-    canvas.width = width;
-    canvas.height = height;
-    
-    const ctx = canvas.getContext('2d');
-    // Draw the cropped portion of the image onto the canvas
-    ctx.drawImage(imageElement, x, y, width, height, 0, 0, width, height);
-    
-    return canvas;
-}
 
-function preprocessImageForRecognition(crops) {
+async function preprocessImageForRecognition(crops) {
     const targetSize = [32, 128];
-    const tensors = crops.map((crop) => {
+
+    const processedCrops = await Promise.all(crops.map(async (crop) => {
         let h = crop.height;
         let w = crop.width;
         let resizeTarget, paddingTarget;
@@ -199,16 +188,29 @@ function preprocessImageForRecognition(crops) {
                 [0, 0],
             ];
         }
+
+        // Create a canvas element for resizing
+        const canvas = document.createElement('canvas');
+        canvas.width = resizeTarget[0];
+        canvas.height = resizeTarget[1];
+
+        // Resize using pica
+        await pica.resize(crop, canvas, {
+            quality: 3,
+            alpha: false,
+        });
+
+        // Convert to tensor and apply padding
         return tf.tidy(() => {
             return tf.browser
-                .fromPixels(crop)
-                .resizeNearestNeighbor(resizeTarget)
+                .fromPixels(canvas)
                 .pad(paddingTarget, 0)
                 .toFloat()
                 .expandDims();
         });
-    });
-    const tensor = tf.concat(tensors);
+    }));
+
+    const tensor = tf.concat(processedCrops);
     let mean = tf.scalar(255 * REC_MEAN);
     let std = tf.scalar(255 * REC_STD);
     return tensor.sub(mean).div(std);
