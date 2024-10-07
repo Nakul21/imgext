@@ -150,7 +150,7 @@ async function preprocessImageForDetection(imageElement) {
     let tensor = tf.tidy(() => {
         return tf.browser
             .fromPixels(resizedImageData)
-            .resizeBilinear([512, 512]) // resize to target size for model
+           // .resizeBilinear([512, 512]) // resize to target size for model
             .toFloat();
     });
 
