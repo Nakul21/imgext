@@ -191,8 +191,8 @@ async function preprocessImageForRecognition(crops) {
 
         // Create a canvas element for resizing
         const canvas = document.createElement('canvas');
-        canvas.width = resizeTarget[0];
-        canvas.height = resizeTarget[1];
+        canvas.width = resizeTarget[1];
+        canvas.height = resizeTarget[0];
 
         // Resize using pica
         await pica.resize(crop, canvas, {
