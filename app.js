@@ -19,6 +19,7 @@ const resultElement = document.getElementById('result');
 const apiResponseElement = document.getElementById('apiResponse');
 const loadingIndicator = document.getElementById('loadingIndicator');
 const appContainer = document.getElementById('appContainer');
+window.Pica = window.pica;
 const pica = new Pica();
 
 let modelLoadingPromise;
