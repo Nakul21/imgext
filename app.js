@@ -140,17 +140,19 @@ async function preprocessImageForDetection(imageElement) {
     canvas.width = newWidth;
     canvas.height = newHeight;
 
+    const ctx = canvas.getContext('2d'); // Get the 2D drawing context
+
     // Resize the image using Pica
     await pica.resize(imageElement, canvas);
 
-    // After resizing, we will pass the resized canvas to TensorFlow.js
-    const resizedImageData = canvas;
+    // Draw the resized image to the canvas (for ensuring it's ready to use)
+    ctx.drawImage(imageElement, 0, 0, newWidth, newHeight);
 
     // Convert the resized image to a tensor using TensorFlow.js
     let tensor = tf.tidy(() => {
         return tf.browser
-            .fromPixels(resizedImageData)
-           // .resizeBilinear([512, 512]) // resize to target size for model
+            .fromPixels(canvas) // Pass the canvas with resized image
+            // .resizeBilinear([512, 512]) // Uncomment if model expects a fixed size
             .toFloat();
     });
 
