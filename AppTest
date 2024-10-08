@@ -1,34 +1,3 @@
-// Add these functions at the appropriate place in your code
-
-function getMaxTextureSize() {
-    const ctx = document.createElement('canvas').getContext('webgl');
-    if (!ctx) return 4096; // Default to a reasonable size if WebGL is not supported
-    return ctx.getParameter(ctx.MAX_TEXTURE_SIZE);
-}
-
-async function preprocessImageForDetection(imageElement) {
-    const maxTextureSize = getMaxTextureSize();
-    const scale = Math.min(1, maxTextureSize / Math.max(imageElement.width, imageElement.height));
-    
-    const newWidth = Math.round(imageElement.width * scale);
-    const newHeight = Math.round(imageElement.height * scale);
-
-    const canvas = document.createElement('canvas');
-    canvas.width = newWidth;
-    canvas.height = newHeight;
-    const ctx = canvas.getContext('2d');
-    ctx.drawImage(imageElement, 0, 0, newWidth, newHeight);
-
-    let tensor = tf.tidy(() => {
-        return tf.browser.fromPixels(canvas).toFloat();
-    });
-
-    let mean = tf.scalar(255 * DET_MEAN);
-    let std = tf.scalar(255 * DET_STD);
-
-    return tensor.sub(mean).div(std).expandDims();
-}
-
 async function detectAndRecognizeText(imageElement) {
     if (isMobile()) {
         await tf.setBackend('webgl');
@@ -71,51 +40,99 @@ async function detectAndRecognizeText(imageElement) {
     squeezedPrediction.dispose();
 
     // Process each bounding box for text recognition
-    // ... (rest of the function remains similar)
+    let extractedData = [];
+    const recognitionBatchSize = isMobile() ? 4 : 16; // Smaller batch size for mobile
+
+    for (let i = 0; i < boundingBoxes.length; i += recognitionBatchSize) {
+        const batch = boundingBoxes.slice(i, i + recognitionBatchSize);
+        
+        // Prepare crops for recognition
+        const crops = batch.map(box => {
+            const [x1, y1] = box.coordinates[0];
+            const [x2, y2] = box.coordinates[2];
+            const width = x2 - x1;
+            const height = y2 - y1;
+
+            const cropCanvas = document.createElement('canvas');
+            cropCanvas.width = width;
+            cropCanvas.height = height;
+            const ctx = cropCanvas.getContext('2d');
+            ctx.drawImage(imageElement, x1, y1, width, height, 0, 0, width, height);
+
+            return cropCanvas;
+        });
+
+        // Preprocess crops for recognition
+        const inputTensor = await preprocessImageForRecognition(crops);
+
+        // Run recognition model
+        const predictions = await recognitionModel.executeAsync(inputTensor);
+        const probabilities = tf.softmax(predictions, -1);
+        const bestPath = tf.unstack(tf.argMax(probabilities, -1), 0);
+        
+        // Decode text
+        const words = decodeText(bestPath);
+
+        // Associate each word with its bounding box
+        words.split(' ').forEach((word, index) => {
+            if (word && batch[index]) {
+                extractedData.push({
+                    word: word,
+                    boundingBox: {
+                        x: Math.round(batch[index].coordinates[0][0]),
+                        y: Math.round(batch[index].coordinates[0][1]),
+                        width: Math.round(batch[index].coordinates[2][0] - batch[index].coordinates[0][0]),
+                        height: Math.round(batch[index].coordinates[2][1] - batch[index].coordinates[0][1])
+                    }
+                });
+            }
+        });
+
+        // Clean up tensors
+        inputTensor.dispose();
+        predictions.dispose();
+        probabilities.dispose();
+        bestPath.forEach(tensor => tensor.dispose());
+    }
 
     return extractedData;
 }
 
-// Modify the init function to include WebGL optimizations
-async function init() {
-    showLoading('Initializing...');
-    
-    await tf.ready();
-    
-    if (isMobile()) {
-        console.log('Mobile device detected. Using WebGL backend.');
-        await tf.setBackend('webgl');
-        
-        // Adjust WebGL settings for mobile
-        const gl = tf.backend().getGPGPUContext().gl;
-        gl.getExtension('OES_texture_float');
-        gl.getExtension('WEBGL_color_buffer_float');
-        
-        // Optimize WebGL settings
-        tf.env().set('WEBGL_FORCE_F16_TEXTURES', true);
-        tf.env().set('WEBGL_RENDER_FLOAT32_CAPABLE', true);
-        tf.env().set('WEBGL_FLUSH_THRESHOLD', 1); // Flush more frequently
+// Helper function to get max texture size
+function getMaxTextureSize() {
+    const ctx = document.createElement('canvas').getContext('webgl');
+    if (!ctx) return 4096; // Default to a reasonable size if WebGL is not supported
+    return ctx.getParameter(ctx.MAX_TEXTURE_SIZE);
+}
 
-        console.log('Max texture size:', getMaxTextureSize());
-    } else if (await isWebGPUSupported()) {
-        // ... (WebGPU setup remains the same)
-    } else {
-        // ... (Fallback remains the same)
-    }
+// This function should be updated to handle potential texture size limits
+async function preprocessImageForDetection(imageElement) {
+    const maxTextureSize = getMaxTextureSize();
+    const scale = Math.min(1, maxTextureSize / Math.max(imageElement.width, imageElement.height));
     
-    // Load models sequentially
-    showLoading('Loading detection model...');
-    detectionModel = await tf.loadGraphModel('models/db_mobilenet_v2/model.json');
-    
-    showLoading('Loading recognition model...');
-    recognitionModel = await tf.loadGraphModel('models/crnn_mobilenet_v2/model.json');
-    
-    console.log('Models loaded successfully');
-    
-    await setupCamera();
-    
-    captureButton.disabled = false;
-    captureButton.textContent = 'Capture';
-    
-    hideLoading();
+    const newWidth = Math.round(imageElement.width * scale);
+    const newHeight = Math.round(imageElement.height * scale);
+
+    const canvas = document.createElement('canvas');
+    canvas.width = newWidth;
+    canvas.height = newHeight;
+    const ctx = canvas.getContext('2d');
+    ctx.drawImage(imageElement, 0, 0, newWidth, newHeight);
+
+    let tensor = tf.tidy(() => {
+        return tf.browser.fromPixels(canvas).toFloat();
+    });
+
+    let mean = tf.scalar(255 * DET_MEAN);
+    let std = tf.scalar(255 * DET_STD);
+
+    return tensor.sub(mean).div(std).expandDims();
+}
+
+// Make sure this function is adjusted to handle potential texture size limits
+async function preprocessImageForRecognition(crops) {
+    // Implementation details depend on your specific recognition model requirements
+    // You may need to resize or pad the crops to a fixed size expected by your model
+    // Be mindful of the maximum texture size when processing these crops
+    // ...
 }
