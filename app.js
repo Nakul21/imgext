@@ -542,6 +542,19 @@ async function init() {
     showLoading('Initializing...');
     
     await tf.ready();
+    if (isMobile()) {
+        console.log('Mobile device detected. Using WebGL backend.');
+        await tf.setBackend('webgl');
+        
+        // Adjust WebGL settings for mobile
+        const gl = tf.backend().getGPGPUContext().gl;
+        gl.getExtension('OES_texture_float');
+        gl.getExtension('WEBGL_color_buffer_float');
+        
+        // Reduce precision if possible
+        tf.env().set('WEBGL_FORCE_F16_TEXTURES', true);
+        tf.env().set('WEBGL_RENDER_FLOAT32_CAPABLE', true);
+    }
     
     if (await isWebGPUSupported()) {
         console.log('WebGPU is supported. Attempting to set backend...');
