@@ -239,7 +239,13 @@ function decodeText(bestPath) {
 
 async function getHeatMapFromImage(imageObject) {
     let tensor = await preprocessImageForDetection(imageObject);
+    
+    if (isMobile() && tf.env().getBool('WEBGL_USE_SHAPES_UNIFORMS')) {
+        tensor = tf.cast(tensor, 'float16');
+    }
+    
     console.log('tensor',tensor);
+    
     let prediction = await detectionModel.execute({'x' : tensor});
     prediction = tf.squeeze(prediction, 0);
     if (Array.isArray(prediction)) {
@@ -302,8 +308,8 @@ function extractBoundingBoxesFromHeatmap(heatmapCanvas, size) {
 }
 
 function useCPU() {
-    tf.setBackend('cpu');
-    console.log('Switched to CPU backend');
+    //tf.setBackend('cpu');
+    //console.log('Switched to CPU backend');
 }
 
 function getRandomColor() {
