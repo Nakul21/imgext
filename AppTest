@@ -1,136 +1,121 @@
-// ... (keep all the existing constants and variables)
+// Add these functions at the appropriate place in your code
 
-// DOM Elements (update and add new ones)
-const video = document.getElementById('video');
-const canvas = document.getElementById('canvas');
-const previewCanvas = document.getElementById('previewCanvas');
-const captureButton = document.getElementById('captureButton');
-const captureMenu = document.getElementById('captureMenu');
-const actionButtons = document.getElementById('actionButtons');
-const sendButton = document.getElementById('sendButton');
-const discardButton = document.getElementById('discardButton');
-const resultElement = document.getElementById('result');
-const apiResponseElement = document.getElementById('apiResponse');
-const loadingIndicator = document.getElementById('loadingIndicator');
-const appContainer = document.getElementById('appContainer');
-const debugToggle = document.getElementById('debugToggle');
+function getMaxTextureSize() {
+    const ctx = document.createElement('canvas').getContext('webgl');
+    if (!ctx) return 4096; // Default to a reasonable size if WebGL is not supported
+    return ctx.getParameter(ctx.MAX_TEXTURE_SIZE);
+}
 
-// ... (keep all the existing functions)
-
-// Update the toggleDebugMode function
-function toggleDebugMode() {
-    debugMode = debugToggle.checked;
+async function preprocessImageForDetection(imageElement) {
+    const maxTextureSize = getMaxTextureSize();
+    const scale = Math.min(1, maxTextureSize / Math.max(imageElement.width, imageElement.height));
     
-    if (debugMode) {
-        previewCanvas.style.display = 'block';
-    } else {
-        previewCanvas.style.display = 'none';
+    const newWidth = Math.round(imageElement.width * scale);
+    const newHeight = Math.round(imageElement.height * scale);
+
+    const canvas = document.createElement('canvas');
+    canvas.width = newWidth;
+    canvas.height = newHeight;
+    const ctx = canvas.getContext('2d');
+    ctx.drawImage(imageElement, 0, 0, newWidth, newHeight);
+
+    let tensor = tf.tidy(() => {
+        return tf.browser.fromPixels(canvas).toFloat();
+    });
+
+    let mean = tf.scalar(255 * DET_MEAN);
+    let std = tf.scalar(255 * DET_STD);
+
+    return tensor.sub(mean).div(std).expandDims();
+}
+
+async function detectAndRecognizeText(imageElement) {
+    if (isMobile()) {
+        await tf.setBackend('webgl');
+        await tf.ready();
+        console.log('Using WebGL backend for mobile');
     }
 
-    resetUI();
-}
+    const maxTextureSize = getMaxTextureSize();
+    console.log('Max texture size:', maxTextureSize);
 
-// Add a new function to toggle the capture menu
-function toggleCaptureMenu() {
-    captureMenu.style.display = captureMenu.style.display === 'none' ? 'block' : 'none';
-}
-
-// Update the resetUI function
-function resetUI() {
-    captureButton.style.display = 'flex';
-    actionButtons.style.display = 'none';
-    resultElement.style.display = 'none';
-    apiResponseElement.style.display = 'none';
-    resultElement.textContent = '';
-    apiResponseElement.textContent = '';
-    imageDataUrl = '';
-    extractedText = '';
-    extractedData = [];
-    clearCanvas();
+    // Preprocess the image, ensuring it fits within texture size limits
+    const tensor = await preprocessImageForDetection(imageElement);
     
-    if (debugMode) {
-        previewCanvas.style.display = 'block';
-    } else {
-        previewCanvas.style.display = 'none';
-    }
+    // Run detection model
+    const prediction = await detectionModel.execute({'x': tensor});
+    const squeezedPrediction = tf.squeeze(prediction, 0);
 
-    // Ensure the video is visible
-    video.style.display = 'block';
+    // Convert prediction to heatmap
+    const heatmapCanvas = document.createElement('canvas');
+    heatmapCanvas.width = tensor.shape[2];
+    heatmapCanvas.height = tensor.shape[1];
+    await tf.browser.toPixels(squeezedPrediction, heatmapCanvas);
+
+    // Extract bounding boxes
+    const boundingBoxes = extractBoundingBoxesFromHeatmap(heatmapCanvas, [tensor.shape[2], tensor.shape[1]]);
+
+    // Scale bounding boxes back to original image size
+    const scaleX = imageElement.width / tensor.shape[2];
+    const scaleY = imageElement.height / tensor.shape[1];
+    boundingBoxes.forEach(box => {
+        box.coordinates = box.coordinates.map(coord => [
+            coord[0] * scaleX,
+            coord[1] * scaleY
+        ]);
+    });
+
+    // Clean up tensors
+    tensor.dispose();
+    prediction.dispose();
+    squeezedPrediction.dispose();
+
+    // Process each bounding box for text recognition
+    // ... (rest of the function remains similar)
+
+    return extractedData;
 }
 
-// Update the handleCapture function
-async function handleCapture() {
-    captureButton.disabled = true;
-    showLoading('Processing image...');
-
-    await ensureModelsLoaded();
-
-    const targetSize = TARGET_SIZE;
-    canvas.width = targetSize[0];
-    canvas.height = targetSize[1];
-    canvas.getContext('2d').drawImage(video, 0, 0, canvas.width, canvas.height);
-
-    imageDataUrl = canvas.toDataURL('image/jpeg', isMobile() ? 0.7 : 0.9);
+// Modify the init function to include WebGL optimizations
+async function init() {
+    showLoading('Initializing...');
     
-    const img = new Image();
-    img.src = imageDataUrl;
-    img.onload = async () => {
-        try {
-            extractedData = await detectAndRecognizeText(img);
-            extractedText = extractedData.map(item => item.word).join(' ');
-            resultElement.textContent = `Extracted Text: ${extractedText}`;
-            resultElement.style.display = 'block';
-            
-            video.style.display = 'none';
-            canvas.style.display = 'block';
-            
-            if (debugMode) {
-                previewCanvas.style.display = 'block';
-            }
-            
-            actionButtons.style.display = 'flex';
-        } catch (error) {
-            console.error('Error during text extraction:', error);
-            resultElement.textContent = 'Error occurred during text extraction';
-            resultElement.style.display = 'block';
-            resetUI();
-        } finally {
-            captureButton.disabled = false;
-            hideLoading();
-            tf.disposeVariables();
-        }
-    };
+    await tf.ready();
+    
+    if (isMobile()) {
+        console.log('Mobile device detected. Using WebGL backend.');
+        await tf.setBackend('webgl');
+        
+        // Adjust WebGL settings for mobile
+        const gl = tf.backend().getGPGPUContext().gl;
+        gl.getExtension('OES_texture_float');
+        gl.getExtension('WEBGL_color_buffer_float');
+        
+        // Optimize WebGL settings
+        tf.env().set('WEBGL_FORCE_F16_TEXTURES', true);
+        tf.env().set('WEBGL_RENDER_FLOAT32_CAPABLE', true);
+        tf.env().set('WEBGL_FLUSH_THRESHOLD', 1); // Flush more frequently
+
+        console.log('Max texture size:', getMaxTextureSize());
+    } else if (await isWebGPUSupported()) {
+        // ... (WebGPU setup remains the same)
+    } else {
+        // ... (Fallback remains the same)
+    }
+    
+    // Load models sequentially
+    showLoading('Loading detection model...');
+    detectionModel = await tf.loadGraphModel('models/db_mobilenet_v2/model.json');
+    
+    showLoading('Loading recognition model...');
+    recognitionModel = await tf.loadGraphModel('models/crnn_mobilenet_v2/model.json');
+    
+    console.log('Models loaded successfully');
+    
+    await setupCamera();
+    
+    captureButton.disabled = false;
+    captureButton.textContent = 'Capture';
+    
+    hideLoading();
 }
-
-// Event Listeners (update and add new ones)
-captureButton.addEventListener('click', () => {
-    if (captureMenu.style.display === 'block') {
-        toggleCaptureMenu();
-    } else {
-        handleCapture();
-    }
-});
-captureButton.addEventListener('touchstart', (e) => {
-    e.preventDefault();
-    if (captureMenu.style.display === 'block') {
-        toggleCaptureMenu();
-    } else {
-        handleCapture();
-    }
-});
-sendButton.addEventListener('click', handleSend);
-sendButton.addEventListener('touchstart', handleSend);
-discardButton.addEventListener('click', resetUI);
-discardButton.addEventListener('touchstart', resetUI);
-debugToggle.addEventListener('change', toggleDebugMode);
-
-// Add event listener for the capture menu toggle
-captureButton.querySelector('.arrow').addEventListener('click', (e) => {
-    e.stopPropagation();
-    toggleCaptureMenu();
-});
-
-// Initialize the application
-init();
-
-// ... (keep the Service Worker Registration)
