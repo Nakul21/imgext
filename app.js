@@ -5,7 +5,6 @@ const DET_MEAN = 0.785;
 const DET_STD = 0.275;
 const VOCAB = "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ!\"#$%&'()*+,-./:;<=>?@[\\]^_`{|}~°£€¥¢฿àâéèêëîïôùûüçÀÂÉÈÊËÎÏÔÙÛÜÇ";
 const TARGET_SIZE = [512, 512];
-
 // DOM Elements
 const video = document.getElementById('video');
 const canvas = document.getElementById('canvas');
@@ -21,27 +20,23 @@ const apiResponseElement = document.getElementById('apiResponse');
 const loadingIndicator = document.getElementById('loadingIndicator');
 const appContainer = document.getElementById('appContainer');
 
-window.Pica = window.pica;
-const pica = new Pica();
-
 let modelLoadingPromise;
+
 let imageDataUrl = '';
 let extractedText = '';
 let extractedData = [];
 let detectionModel;
 let recognitionModel;
 
-function getMaxTextureSize() {
-    const ctx = document.createElement('canvas').getContext('webgl');
-    if (!ctx) return 4096; // Default to a reasonable size if WebGL is not supported
-    return ctx.getParameter(ctx.MAX_TEXTURE_SIZE);
-}
-
 async function isWebGPUSupported() {
-    if (!navigator.gpu) return false;
+    if (!navigator.gpu) {
+        return false;
+    }
     try {
         const adapter = await navigator.gpu.requestAdapter();
-        if (!adapter) return false;
+        if (!adapter) {
+            return false;
+        }
         const device = await adapter.requestDevice();
         return !!device;
     } catch (e) {
@@ -67,10 +62,12 @@ async function fallbackToWebGLorCPU() {
 function showLoading(message) {
     loadingIndicator.textContent = message;
     loadingIndicator.style.display = 'block';
+    //appContainer.style.display = 'none';
 }
 
 function hideLoading() {
     loadingIndicator.style.display = 'none';
+    //appContainer.style.display = 'block';
 }
 
 async function loadModels() {
@@ -122,12 +119,19 @@ async function setupCamera() {
     }
 }
 
-async function preprocessImageForDetection(imageElement) {
-    const maxTextureSize = getMaxTextureSize();
-    const scale = Math.min(1, maxTextureSize / Math.max(imageElement.width, imageElement.height));
-    
-    const newWidth = Math.round(imageElement.width * scale);
-    const newHeight = Math.round(imageElement.height * scale);
+function preprocessImageForDetection(imageElement) {
+    const maxSize = isMobile() ? 512 : 2048; 
+    const originalWidth = imageElement.width;
+    const originalHeight = imageElement.height;
+    let newWidth, newHeight;
+
+    if (originalWidth > originalHeight) {
+        newWidth = Math.min(originalWidth, maxSize);
+        newHeight = (originalHeight / originalWidth) * newWidth;
+    } else {
+        newHeight = Math.min(originalHeight, maxSize);
+        newWidth = (originalWidth / originalHeight) * newHeight;
+    }
 
     const canvas = document.createElement('canvas');
     canvas.width = newWidth;
@@ -135,77 +139,50 @@ async function preprocessImageForDetection(imageElement) {
     const ctx = canvas.getContext('2d');
     ctx.drawImage(imageElement, 0, 0, newWidth, newHeight);
 
-    let tensor = tf.tidy(() => {
-        return tf.browser.fromPixels(canvas).toFloat();
-    });
-
+    //const targetSize = [512, 512];
+    let tensor = tf.tidy( () => { 
+        return tf.browser
+        .fromPixels(imageElement)
+        .resizeNearestNeighbor(TARGET_SIZE)
+        .toFloat();
+        });
     let mean = tf.scalar(255 * DET_MEAN);
     let std = tf.scalar(255 * DET_STD);
-
     return tensor.sub(mean).div(std).expandDims();
 }
 
-async function preprocessImageForRecognition(crops) {
+function preprocessImageForRecognition(crops) {
     const targetSize = [32, 128];
-
-    const processedCrops = await Promise.all(crops.map(async (crop) => {
+    const tensors = crops.map((crop) => {
         let h = crop.height;
         let w = crop.width;
         let resizeTarget, paddingTarget;
         let aspectRatio = targetSize[1] / targetSize[0];
-
-        if (w === 0 || h === 0) {
-            console.warn('Invalid crop dimensions:', w, h);
-            return null; // Skip this crop
-        }
-
         if (aspectRatio * h > w) {
-            resizeTarget = [targetSize[0], Math.max(1, Math.round((targetSize[0] * w) / h))];
+            resizeTarget = [targetSize[0], Math.round((targetSize[0] * w) / h)];
             paddingTarget = [
                 [0, 0],
-                [0, Math.max(0, targetSize[1] - resizeTarget[1])],
+                [0, targetSize[1] - Math.round((targetSize[0] * w) / h)],
                 [0, 0],
             ];
         } else {
-            resizeTarget = [Math.max(1, Math.round((targetSize[1] * h) / w)), targetSize[1]];
+            resizeTarget = [Math.round((targetSize[1] * h) / w), targetSize[1]];
             paddingTarget = [
-                [0, Math.max(0, targetSize[0] - resizeTarget[0])],
+                [0, targetSize[0] - Math.round((targetSize[1] * h) / w)],
                 [0, 0],
                 [0, 0],
             ];
         }
-
-        const canvas = document.createElement('canvas');
-        canvas.width = resizeTarget[1];
-        canvas.height = resizeTarget[0];
-
-        try {
-            await pica.resize(crop, canvas, {
-                quality: 3,
-                alpha: false,
-            });
-
-            return tf.tidy(() => {
-                return tf.browser
-                    .fromPixels(canvas)
-                    .pad(paddingTarget, 0)
-                    .toFloat()
-                    .expandDims();
-            });
-        } catch (error) {
-            console.error('Error processing crop:', error);
-            return null; // Skip this crop if there's an error
-        }
-    }));
-
-    // Filter out null values (skipped crops)
-    const validProcessedCrops = processedCrops.filter(crop => crop !== null);
-
-    if (validProcessedCrops.length === 0) {
-        throw new Error('No valid crops to process');
-    }
-
-    const tensor = tf.concat(validProcessedCrops);
+        return tf.tidy(() => {
+            return tf.browser
+                .fromPixels(crop)
+                .resizeNearestNeighbor(resizeTarget)
+                .pad(paddingTarget, 0)
+                .toFloat()
+                .expandDims();
+        });
+    });
+    const tensor = tf.concat(tensors);
     let mean = tf.scalar(255 * REC_MEAN);
     let std = tf.scalar(255 * REC_STD);
     return tensor.sub(mean).div(std);
@@ -232,13 +209,8 @@ function decodeText(bestPath) {
 }
 
 async function getHeatMapFromImage(imageObject) {
-    let tensor = await preprocessImageForDetection(imageObject);
-    
-    if (isMobile() && tf.env().getBool('WEBGL_USE_SHAPES_UNIFORMS')) {
-        tensor = tf.cast(tensor, 'float16');
-    }
-    
-    let prediction = await detectionModel.execute({'x' : tensor});
+    let tensor = preprocessImageForDetection(imageObject);
+    let prediction = await detectionModel.execute(tensor);
     prediction = tf.squeeze(prediction, 0);
     if (Array.isArray(prediction)) {
         prediction = prediction[0];
@@ -309,78 +281,69 @@ function getRandomColor() {
 }
 
 async function detectAndRecognizeText(imageElement) {
+    
     if (isMobile()) {
-        await tf.setBackend('webgl');
-        await tf.ready();
-        console.log('Using WebGL backend for mobile');
+        useCPU(); // Switch to CPU for mobile devices
+    }
+    //const size = [512, 512];
+    const heatmapCanvas = await getHeatMapFromImage(imageElement);
+    const boundingBoxes = extractBoundingBoxesFromHeatmap(heatmapCanvas, TARGET_SIZE);
+    // console.log('extractBoundingBoxesFromHeatmap', boundingBoxes);
+
+    previewCanvas.width = TARGET_SIZE[0];
+    previewCanvas.height = TARGET_SIZE[1];
+    const ctx = previewCanvas.getContext('2d');
+    ctx.drawImage(imageElement, 0, 0);
+
+    let fullText = '';
+    const crops = [];
+    
+    try {
+
+    for (const box of boundingBoxes) {
+        // Draw bounding box
+        const [x1, y1] = box.coordinates[0];
+        const [x2, y2] = box.coordinates[2];
+        const width = (x2 - x1) * imageElement.width;
+        const height = (y2 - y1) * imageElement.height;
+        const x = x1 * imageElement.width;
+        const y = y1 * imageElement.height;
+
+        ctx.strokeStyle = box.config.stroke;
+        ctx.lineWidth = 2;
+        ctx.strokeRect(x, y, width, height);
+
+        // Create crop
+        const croppedCanvas = document.createElement('canvas');
+        croppedCanvas.width = Math.min(width, 128)
+        croppedCanvas.height = Math.min(height, 32);
+        croppedCanvas.getContext('2d').drawImage(
+            imageElement, 
+            x, y, width, height,
+            0, 0, width, height
+        );
+
+        crops.push({
+            canvas: croppedCanvas,
+            bbox: {
+                x: Math.round(x),
+                y: Math.round(y),
+                width: Math.round(width),
+                height: Math.round(height)
+            }
+        });
     }
 
-    const maxTextureSize = getMaxTextureSize();
-    console.log('Max texture size:', maxTextureSize);
+    // Process crops in batches
+    const batchSize = isMobile() ? 32 : 32;
+    for (let i = 0; i < crops.length; i += batchSize) {
+        const batch = crops.slice(i, i + batchSize);
+        const inputTensor = preprocessImageForRecognition(batch.map(crop => crop.canvas));
 
-    // Preprocess the image, ensuring it fits within texture size limits
-    const tensor = await preprocessImageForDetection(imageElement);
-    
-    // Run detection model
-    const prediction = await detectionModel.execute({'x': tensor});
-    const squeezedPrediction = tf.squeeze(prediction, 0);
-
-    // Convert prediction to heatmap
-    const heatmapCanvas = document.createElement('canvas');
-    heatmapCanvas.width = tensor.shape[2];
-    heatmapCanvas.height = tensor.shape[1];
-    await tf.browser.toPixels(squeezedPrediction, heatmapCanvas);
-
-    // Extract bounding boxes
-    const boundingBoxes = extractBoundingBoxesFromHeatmap(heatmapCanvas, [tensor.shape[2], tensor.shape[1]]);
-
-    // Scale bounding boxes back to original image size
-    const scaleX = imageElement.width / tensor.shape[2];
-    const scaleY = imageElement.height / tensor.shape[1];
-    boundingBoxes.forEach(box => {
-        box.coordinates = box.coordinates.map(coord => [
-            coord[0] * scaleX,
-            coord[1] * scaleY
-        ]);
-    });
-
-    // Clean up tensors
-    tensor.dispose();
-    prediction.dispose();
-    squeezedPrediction.dispose();
-
-    // Process each bounding box for text recognition
-    let extractedData = [];
-    const recognitionBatchSize = isMobile() ? 4 : 16; // Smaller batch size for mobile
-
-    for (let i = 0; i < boundingBoxes.length; i += recognitionBatchSize) {
-        const batch = boundingBoxes.slice(i, i + recognitionBatchSize);
-        
-        // Prepare crops for recognition
-        const crops = batch.map(box => {
-            const [x1, y1] = box.coordinates[0];
-            const [x2, y2] = box.coordinates[2];
-            const width = x2 - x1;
-            const height = y2 - y1;
-
-            const cropCanvas = document.createElement('canvas');
-            cropCanvas.width = width;
-            cropCanvas.height = height;
-            const ctx = cropCanvas.getContext('2d');
-            ctx.drawImage(imageElement, x1, y1, width, height, 0, 0, width, height);
-
-            return cropCanvas;
-        });
-
-        // Preprocess crops for recognition
-        const inputTensor = await preprocessImageForRecognition(crops);
-
-        // Run recognition model
         const predictions = await recognitionModel.executeAsync(inputTensor);
         const probabilities = tf.softmax(predictions, -1);
         const bestPath = tf.unstack(tf.argMax(probabilities, -1), 0);
         
-        // Decode text
         const words = decodeText(bestPath);
 
         // Associate each word with its bounding box
@@ -388,25 +351,25 @@ async function detectAndRecognizeText(imageElement) {
             if (word && batch[index]) {
                 extractedData.push({
                     word: word,
-                    boundingBox: {
-                        x: Math.round(batch[index].coordinates[0][0]),
-                        y: Math.round(batch[index].coordinates[0][1]),
-                        width: Math.round(batch[index].coordinates[2][0] - batch[index].coordinates[0][0]),
-                        height: Math.round(batch[index].coordinates[2][1] - batch[index].coordinates[0][1])
-                    }
+                    boundingBox: batch[index].bbox
                 });
             }
         });
 
-        // Clean up tensors
-        inputTensor.dispose();
-        predictions.dispose();
-        probabilities.dispose();
-        bestPath.forEach(tensor => tensor.dispose());
+        tf.dispose([inputTensor, predictions, probabilities, ...bestPath]);
     }
-
+    
     return extractedData;
-}   
+    
+    } catch(error) {
+        
+        console.error('Error in detectAndRecognizeText:', error);
+        throw error;
+   
+    } finally {
+        tf.disposeVariables(); // Clean up any remaining tensors
+    }
+}
 
 function disableCaptureButton() {
     captureButton.disabled = true;
@@ -417,6 +380,7 @@ function enableCaptureButton() {
     captureButton.disabled = false;
     captureButton.textContent = 'Capture';
 }
+
 
 async function handleCapture() {
     disableCaptureButton();
@@ -455,6 +419,7 @@ async function handleCapture() {
 }
 
 function isMobile() {
+    console.log('navigator.userAgent',navigator.userAgent);
     return /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
 }
 
@@ -477,7 +442,7 @@ async function handleSend() {
         const response = await fetch('https://kvdb.io/NyKpFtJ7v392NS8ibLiofx/'+msgKey, {
             method: 'PUT',
             body: JSON.stringify({
-                extractedAt: msgKey,
+                extractetAt: msgKey,
                 probableTextContent: extractedText,
                 boundingBoxes: extractedData,
                 userId: "imageExt",
@@ -541,19 +506,6 @@ async function init() {
     showLoading('Initializing...');
     
     await tf.ready();
-    if (isMobile()) {
-        console.log('Mobile device detected. Using WebGL backend.');
-        await tf.setBackend('webgl');
-        
-        // Adjust WebGL settings for mobile
-        const gl = tf.backend().getGPGPUContext().gl;
-        gl.getExtension('OES_texture_float');
-        gl.getExtension('WEBGL_color_buffer_float');
-        
-        // Reduce precision if possible
-        tf.env().set('WEBGL_FORCE_F16_TEXTURES', true);
-        tf.env().set('WEBGL_RENDER_FLOAT32_CAPABLE', true);
-    }
     
     if (await isWebGPUSupported()) {
         console.log('WebGPU is supported. Attempting to set backend...');
