@@ -1,7 +1,7 @@
 {
   "name": "TextRecognition App",
   "short_name": "TextRec",
-  "start_url": "/",
+  "start_url": "index.html",
   "display": "standalone",
   "background_color": "#ffffff",
   "theme_color": "#007bff",
