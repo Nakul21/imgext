@@ -30,6 +30,12 @@ let extractedData = [];
 let detectionModel;
 let recognitionModel;
 
+function getMaxTextureSize() {
+    const ctx = document.createElement('canvas').getContext('webgl');
+    if (!ctx) return 4096; // Default to a reasonable size if WebGL is not supported
+    return ctx.getParameter(ctx.MAX_TEXTURE_SIZE);
+}
+
 async function isWebGPUSupported() {
     if (!navigator.gpu) {
         return false;
