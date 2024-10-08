@@ -5,6 +5,7 @@ const DET_MEAN = 0.785;
 const DET_STD = 0.275;
 const VOCAB = "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ!\"#$%&'()*+,-./:;<=>?@[\\]^_`{|}~°£€¥¢฿àâéèêëîïôùûüçÀÂÉÈÊËÎÏÔÙÛÜÇ";
 const TARGET_SIZE = [512, 512];
+
 // DOM Elements
 const video = document.getElementById('video');
 const canvas = document.getElementById('canvas');
@@ -19,11 +20,11 @@ const resultElement = document.getElementById('result');
 const apiResponseElement = document.getElementById('apiResponse');
 const loadingIndicator = document.getElementById('loadingIndicator');
 const appContainer = document.getElementById('appContainer');
+
 window.Pica = window.pica;
 const pica = new Pica();
 
 let modelLoadingPromise;
-
 let imageDataUrl = '';
 let extractedText = '';
 let extractedData = [];
@@ -37,14 +38,10 @@ function getMaxTextureSize() {
 }
 
 async function isWebGPUSupported() {
-    if (!navigator.gpu) {
-        return false;
-    }
+    if (!navigator.gpu) return false;
     try {
         const adapter = await navigator.gpu.requestAdapter();
-        if (!adapter) {
-            return false;
-        }
+        if (!adapter) return false;
         const device = await adapter.requestDevice();
         return !!device;
     } catch (e) {
@@ -62,20 +59,18 @@ async function fallbackToWebGLorCPU() {
             console.error('Failed to set WebGL backend:', e);
             useCPU();
         }
-   } else {
-       useCPU();
-   }
+    } else {
+        useCPU();
+    }
 }
 
 function showLoading(message) {
     loadingIndicator.textContent = message;
     loadingIndicator.style.display = 'block';
-    //appContainer.style.display = 'none';
 }
 
 function hideLoading() {
     loadingIndicator.style.display = 'none';
-    //appContainer.style.display = 'block';
 }
 
 async function loadModels() {
@@ -174,18 +169,15 @@ async function preprocessImageForRecognition(crops) {
             ];
         }
 
-        // Create a canvas element for resizing
         const canvas = document.createElement('canvas');
         canvas.width = resizeTarget[1];
         canvas.height = resizeTarget[0];
 
-        // Resize using pica
         await pica.resize(crop, canvas, {
             quality: 3,
             alpha: false,
         });
 
-        // Convert to tensor and apply padding
         return tf.tidy(() => {
             return tf.browser
                 .fromPixels(canvas)
@@ -200,7 +192,6 @@ async function preprocessImageForRecognition(crops) {
     let std = tf.scalar(255 * REC_STD);
     return tensor.sub(mean).div(std);
 }
-
 
 function decodeText(bestPath) {
     const blank = 126;
@@ -228,8 +219,6 @@ async function getHeatMapFromImage(imageObject) {
     if (isMobile() && tf.env().getBool('WEBGL_USE_SHAPES_UNIFORMS')) {
         tensor = tf.cast(tensor, 'float16');
     }
-    
-    console.log('tensor',tensor);
     
     let prediction = await detectionModel.execute({'x' : tensor});
     prediction = tf.squeeze(prediction, 0);
@@ -293,8 +282,8 @@ function extractBoundingBoxesFromHeatmap(heatmapCanvas, size) {
 }
 
 function useCPU() {
-    //tf.setBackend('cpu');
-    //console.log('Switched to CPU backend');
+    tf.setBackend('cpu');
+    console.log('Switched to CPU backend');
 }
 
 function getRandomColor() {
@@ -401,7 +390,6 @@ async function detectAndRecognizeText(imageElement) {
     return extractedData;
 }   
 
-
 function disableCaptureButton() {
     captureButton.disabled = true;
     captureButton.textContent = 'Processing...';
@@ -411,7 +399,6 @@ function enableCaptureButton() {
     captureButton.disabled = false;
     captureButton.textContent = 'Capture';
 }
-
 
 async function handleCapture() {
     disableCaptureButton();
@@ -450,7 +437,6 @@ async function handleCapture() {
 }
 
 function isMobile() {
-    console.log('navigator.userAgent',navigator.userAgent);
     return /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
 }
 
@@ -473,7 +459,7 @@ async function handleSend() {
         const response = await fetch('https://kvdb.io/NyKpFtJ7v392NS8ibLiofx/'+msgKey, {
             method: 'PUT',
             body: JSON.stringify({
-                extractetAt: msgKey,
+                extractedAt: msgKey,
                 probableTextContent: extractedText,
                 boundingBoxes: extractedData,
                 userId: "imageExt",
