@@ -153,17 +153,23 @@ async function preprocessImageForRecognition(crops) {
         let w = crop.width;
         let resizeTarget, paddingTarget;
         let aspectRatio = targetSize[1] / targetSize[0];
+
+        if (w === 0 || h === 0) {
+            console.warn('Invalid crop dimensions:', w, h);
+            return null; // Skip this crop
+        }
+
         if (aspectRatio * h > w) {
-            resizeTarget = [targetSize[0], Math.round((targetSize[0] * w) / h)];
+            resizeTarget = [targetSize[0], Math.max(1, Math.round((targetSize[0] * w) / h))];
             paddingTarget = [
                 [0, 0],
-                [0, targetSize[1] - Math.round((targetSize[0] * w) / h)],
+                [0, Math.max(0, targetSize[1] - resizeTarget[1])],
                 [0, 0],
             ];
         } else {
-            resizeTarget = [Math.round((targetSize[1] * h) / w), targetSize[1]];
+            resizeTarget = [Math.max(1, Math.round((targetSize[1] * h) / w)), targetSize[1]];
             paddingTarget = [
-                [0, targetSize[0] - Math.round((targetSize[1] * h) / w)],
+                [0, Math.max(0, targetSize[0] - resizeTarget[0])],
                 [0, 0],
                 [0, 0],
             ];
@@ -173,21 +179,33 @@ async function preprocessImageForRecognition(crops) {
         canvas.width = resizeTarget[1];
         canvas.height = resizeTarget[0];
 
-        await pica.resize(crop, canvas, {
-            quality: 3,
-            alpha: false,
-        });
+        try {
+            await pica.resize(crop, canvas, {
+                quality: 3,
+                alpha: false,
+            });
 
-        return tf.tidy(() => {
-            return tf.browser
-                .fromPixels(canvas)
-                .pad(paddingTarget, 0)
-                .toFloat()
-                .expandDims();
-        });
+            return tf.tidy(() => {
+                return tf.browser
+                    .fromPixels(canvas)
+                    .pad(paddingTarget, 0)
+                    .toFloat()
+                    .expandDims();
+            });
+        } catch (error) {
+            console.error('Error processing crop:', error);
+            return null; // Skip this crop if there's an error
+        }
     }));
 
-    const tensor = tf.concat(processedCrops);
+    // Filter out null values (skipped crops)
+    const validProcessedCrops = processedCrops.filter(crop => crop !== null);
+
+    if (validProcessedCrops.length === 0) {
+        throw new Error('No valid crops to process');
+    }
+
+    const tensor = tf.concat(validProcessedCrops);
     let mean = tf.scalar(255 * REC_MEAN);
     let std = tf.scalar(255 * REC_STD);
     return tensor.sub(mean).div(std);
