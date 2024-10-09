@@ -1,68 +1,46 @@
-async function preprocessImageForRecognition(crops) {
-    const targetSize = [32, 128];
+import com.netflix.zuul.ZuulFilter;
+import com.netflix.zuul.context.RequestContext;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.stereotype.Component;
 
-    const processedCrops = await Promise.all(crops.map(async (crop) => {
-        let h = crop.height;
-        let w = crop.width;
-        let resizeTarget, paddingTarget;
-        let aspectRatio = targetSize[1] / targetSize[0];
+import javax.servlet.http.HttpServletRequest;
+import java.util.Enumeration;
 
-        if (w === 0 || h === 0) {
-            console.warn('Invalid crop dimensions:', w, h);
-            return null; // Skip this crop
-        }
+@Component
+public class HeaderLoggingFilter extends ZuulFilter {
 
-        if (aspectRatio * h > w) {
-            resizeTarget = [targetSize[0], Math.max(1, Math.round((targetSize[0] * w) / h))];
-            paddingTarget = [
-                [0, 0],
-                [0, Math.max(0, targetSize[1] - resizeTarget[1])],
-                [0, 0],
-            ];
-        } else {
-            resizeTarget = [Math.max(1, Math.round((targetSize[1] * h) / w)), targetSize[1]];
-            paddingTarget = [
-                [0, Math.max(0, targetSize[0] - resizeTarget[0])],
-                [0, 0],
-                [0, 0],
-            ];
-        }
+    private static Logger log = LoggerFactory.getLogger(HeaderLoggingFilter.class);
 
-        const canvas = document.createElement('canvas');
-        canvas.width = resizeTarget[1];
-        canvas.height = resizeTarget[0];
-
-        try {
-            await pica.resize(crop, canvas, {
-                quality: 3,
-                alpha: false,
-            });
-
-            return tf.tidy(() => {
-                return tf.browser
-                    .fromPixels(canvas)
-                    .pad(paddingTarget, 0)
-                    .toFloat()
-                    .expandDims();
-            });
-        } catch (error) {
-            console.error('Error processing crop:', error);
-            return null; // Skip this crop if there's an error
-        }
-    }));
-
-    // Filter out null values (skipped crops)
-    const validProcessedCrops = processedCrops.filter(crop => crop !== null);
-
-    if (validProcessedCrops.length === 0) {
-        throw new Error('No valid crops to process');
+    @Override
+    public String filterType() {
+        return "pre";
     }
 
-    const tensor = tf.concat(validProcessedCrops);
-    let mean = tf.scalar(255 * REC_MEAN);
-    let std = tf.scalar(255 * REC_STD);
-    return tensor.sub(mean).div(std);
+    @Override
+    public int filterOrder() {
+        return 1;
+    }
+
+    @Override
+    public boolean shouldFilter() {
+        return true;
+    }
+
+    @Override
+    public Object run() {
+        RequestContext ctx = RequestContext.getCurrentContext();
+        HttpServletRequest request = ctx.getRequest();
+
+        log.info("Incoming request method: {}, URL: {}", request.getMethod(), request.getRequestURL().toString());
+
+        Enumeration<String> headerNames = request.getHeaderNames();
+        while (headerNames.hasMoreElements()) {
+            String headerName = headerNames.nextElement();
+            String headerValue = request.getHeader(headerName);
+            log.info("Header: {} = {}", headerName, headerValue);
+        }
+
+        return null;
+    }
 }
-
-
-
