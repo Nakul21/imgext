@@ -1,0 +1,140 @@
+import dataiku
+from kubernetes import client, config
+import pandas as pd
+import datetime
+
+def get_service_health():
+    config.load_kube_config()
+    v1 = client.CoreV1Api()
+    services = v1.list_service_for_all_namespaces(watch=False)
+
+    health_status = []
+    for service in services.items:
+        name = service.metadata.name
+        namespace = service.metadata.namespace
+        # Example: Check if the service has any endpoints
+        endpoints = v1.read_namespaced_endpoints(name, namespace)
+        status = "green" if endpoints.subsets else "red"
+        health_status.append({
+            "service": name,
+            "namespace": namespace,
+            "status": status
+        })
+
+    return health_status
+
+def get_pod_events_and_metrics():
+    config.load_kube_config()
+    v1 = client.CoreV1Api()
+    events = v1.list_event_for_all_namespaces(_preload_content=False)
+    events_data = json.loads(events.data)
+
+    # Filter events for pod restarts and crashes
+    relevant_events = []
+    for event in events_data['items']:
+        if event['reason'] in ['Started', 'Failed', 'Killing']:
+            relevant_events.append({
+                "timestamp": event['lastTimestamp'],
+                "namespace": event['involvedObject']['namespace'],
+                "pod": event['involvedObject']['name'],
+                "reason": event['reason'],
+                "message": event['message']
+            })
+
+    # Convert to DataFrame for easier manipulation
+    events_df = pd.DataFrame(relevant_events)
+    events_df['timestamp'] = pd.to_datetime(events_df['timestamp'])
+
+    # Calculate the number of restarts and crashes in the last hour
+    now = datetime.datetime.now(datetime.timezone.utc)
+    one_hour_ago = now - datetime.timedelta(hours=1)
+    recent_events = events_df[events_df['timestamp'] > one_hour_ago]
+
+    restarts = recent_events[recent_events['reason'] == 'Started'].groupby(['namespace', 'pod']).size().reset_index(name='restarts')
+    crashes = recent_events[recent_events['reason'] == 'Failed'].groupby(['namespace', 'pod']).size().reset_index(name='crashes')
+
+    return restarts, crashes
+
+# Get health status
+health_data = get_service_health()
+
+# Write health data to a Dataiku dataset
+output_dataset_health = dataiku.Dataset("k8s_health")
+output_dataset_health.write_with_schema(health_data, dropAndCreate=True)
+
+# Get pod events and metrics
+restarts, crashes = get_pod_events_and_metrics()
+
+# Write restarts and crashes data to Dataiku datasets
+output_dataset_restarts = dataiku.Dataset("k8s_restarts")
+output_dataset_restarts.write_with_schema(restarts.to_dict(orient='records'), dropAndCreate=True)
+
+output_dataset_crashes = dataiku.Dataset("k8s_crashes")
+output_dataset_crashes.write_with_schema(crashes.to_dict(orient='records'), dropAndCreate=True)
+
+
+
+----
+
+
+import dataiku
+from dataiku.scenario import Scenario
+
+# Initialize the scenario
+scenario = Scenario()
+
+# Run the recipe
+scenario.run_recipe("Fetch Kubernetes Health")
+
+# Read the health data from the dataset
+health_dataset = dataiku.Dataset("k8s_health")
+health_data = health_dataset.get_dataframe()
+
+# Read the restarts and crashes data from the datasets
+restarts_dataset = dataiku.Dataset("k8s_restarts")
+restarts_data = restarts_dataset.get_dataframe()
+
+crashes_dataset = dataiku.Dataset("k8s_crashes")
+crashes_data = crashes_dataset.get_dataframe()
+
+# Check for red status and send email if found
+red_services = health_data[health_data['status'] == 'red']
+if not red_services.empty:
+    red_services_list = red_services.to_dict(orient='records')
+    message = "The following services are in a critical state:\n\n"
+    for service in red_services_list:
+        message += f"Service: {service['service']} (Namespace: {service['namespace']})\n"
+    scenario.send_email(
+        to="recipient@example.com",
+        subject="Kubernetes Service Health Alert",
+        body=message
+    )
+
+# Check for frequent restarts and send email if found
+frequent_restarts = restarts_data[restarts_data['restarts'] > 5]
+if not frequent_restarts.empty:
+    frequent_restarts_list = frequent_restarts.to_dict(orient='records')
+    message = "The following pods have frequent restarts in the last hour:\n\n"
+    for pod in frequent_restarts_list:
+        message += f"Pod: {pod['pod']} (Namespace: {pod['namespace']}) - Restarts: {pod['restarts']}\n"
+    scenario.send_email(
+        to="recipient@example.com",
+        subject="Kubernetes Frequent Restarts Alert",
+        body=message
+    )
+
+# Check for crashes and send email if found
+crashes = crashes_data[crashes_data['crashes'] > 0]
+if not crashes.empty:
+    crashes_list = crashes.to_dict(orient='records')
+    message = "The following pods have crashed in the last hour:\n\n"
+    for pod in crashes_list:
+        message += f"Pod: {pod['pod']} (Namespace: {pod['namespace']}) - Crashes: {pod['crashes']}\n"
+    scenario.send_email(
+        to="recipient@example.com",
+        subject="Kubernetes Crashes Alert",
+        body=message
+    )
+
+
+
