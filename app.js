@@ -1,16 +1,10 @@
 // Constants
-const BATCH_SIZE = 16; // Define your batch size here
-const TARGET_SIZE = [512, 512];
 const REC_MEAN = 0.694;
 const REC_STD = 0.298;
 const DET_MEAN = 0.785;
 const DET_STD = 0.275;
 const VOCAB = "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ!\"#$%&'()*+,-./:;<=>?@[\\]^_`{|}~°£€¥¢฿àâéèêëîïôùûüçÀÂÉÈÊËÎÏÔÙÛÜÇ";
-const MODEL_PATHS = {
-    detection: 'models/db_mobilenet_v2/model.json',
-    recognition: 'models/crnn_mobilenet_v2/model.json'
-};
-
+const TARGET_SIZE = [512, 512];
 // DOM Elements
 const video = document.getElementById('video');
 const canvas = document.getElementById('canvas');
@@ -27,12 +21,12 @@ const loadingIndicator = document.getElementById('loadingIndicator');
 const appContainer = document.getElementById('appContainer');
 
 let modelLoadingPromise;
+
 let imageDataUrl = '';
 let extractedText = '';
 let extractedData = [];
 let detectionModel;
 let recognitionModel;
-let reusableCanvas;
 
 async function isWebGPUSupported() {
     if (!navigator.gpu) {
@@ -52,13 +46,13 @@ async function isWebGPUSupported() {
 }
 
 async function fallbackToWebGLorCPU() {
-    try {
-        await tf.setBackend('webgl');
-        console.log('Fallback to WebGL backend successful');
-    } catch (e) {
-        console.error('Failed to set WebGL backend:', e);
-        useCPU();
-    }
+        try {
+            await tf.setBackend('webgl');
+            console.log('Fallback to WebGL backend successful');
+        } catch (e) {
+            console.error('Failed to set WebGL backend:', e);
+            useCPU();
+        }
 }
 
 function showLoading(message) {
@@ -75,10 +69,10 @@ function hideLoading() {
 async function loadModels() {
     try {
         showLoading('Loading detection model...');
-        detectionModel = await tf.loadGraphModel(MODEL_PATHS.detection);
+        detectionModel = await tf.loadGraphModel('models/db_mobilenet_v2/model.json');
         
         showLoading('Loading recognition model...');
-        recognitionModel = await tf.loadGraphModel(MODEL_PATHS.recognition);
+        recognitionModel = await tf.loadGraphModel('models/crnn_mobilenet_v2/model.json');
         
         console.log('Models loaded successfully');
         hideLoading();
@@ -121,87 +115,176 @@ async function setupCamera() {
     }
 }
 
-function preprocessImages(images) {
-    // Ensure images is always an array
-    const imageArray = Array.isArray(images) ? images : [images];
-    
-    const resizedImages = imageArray.map(img => {
-        const canvas = document.createElement('canvas');
-        canvas.width = TARGET_SIZE[0];
-        canvas.height = TARGET_SIZE[1];
-        const ctx = canvas.getContext('2d');
-        ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-        return tf.browser.fromPixels(canvas);
-    });
+function preprocessImageForDetection(imageElement) {
+    const maxSize = isMobile() ? 512 : 2048; 
+    const originalWidth = imageElement.width;
+    const originalHeight = imageElement.height;
+    let newWidth, newHeight;
 
-    const batchTensor = tf.stack(resizedImages);
-    const mean = tf.tensor1d([255 * DET_MEAN, 255 * DET_MEAN, 255 * DET_MEAN]);
-    const std = tf.tensor1d([255 * DET_STD, 255 * DET_STD, 255 * DET_STD]);
-    return batchTensor.div(std).sub(mean);
+    if (originalWidth > originalHeight) {
+        newWidth = Math.min(originalWidth, maxSize);
+        newHeight = (originalHeight / originalWidth) * newWidth;
+    } else {
+        newHeight = Math.min(originalHeight, maxSize);
+        newWidth = (originalWidth / originalHeight) * newHeight;
+    }
+
+    const canvas = document.createElement('canvas');
+    canvas.width = newWidth;
+    canvas.height = newHeight;
+    const ctx = canvas.getContext('2d');
+    ctx.drawImage(imageElement, 0, 0, newWidth, newHeight);
+
+    //const targetSize = [512, 512];
+    let tensor = tf.tidy( () => { 
+        return tf.browser
+        .fromPixels(imageElement)
+        .resizeNearestNeighbor(TARGET_SIZE)
+        .toFloat();
+        });
+    let mean = tf.scalar(255 * DET_MEAN);
+    let std = tf.scalar(255 * DET_STD);
+    return tensor.sub(mean).div(std).expandDims();
 }
 
-async function getHeatMapFromImage(images) {
-    console.log('Entering getHeatMapFromImage');
-    const batchTensor = preprocessImages(images);
-    console.log('Batch tensor shape:', batchTensor.shape);
-    
-    const predictions = await detectionModel.execute(batchTensor);
-    console.log('Predictions shape:', predictions.shape);
-    
-    let heatmapData;
-    if (!Array.isArray(images)) {
-        heatmapData = predictions.squeeze();
-    } else {
-        heatmapData = predictions;
+function preprocessImageForRecognition(crops) {
+    const targetSize = [32, 128];
+    const tensors = crops.map((crop) => {
+        let h = crop.height;
+        let w = crop.width;
+        let resizeTarget, paddingTarget;
+        let aspectRatio = targetSize[1] / targetSize[0];
+        if (aspectRatio * h > w) {
+            resizeTarget = [targetSize[0], Math.round((targetSize[0] * w) / h)];
+            paddingTarget = [
+                [0, 0],
+                [0, targetSize[1] - Math.round((targetSize[0] * w) / h)],
+                [0, 0],
+            ];
+        } else {
+            resizeTarget = [Math.round((targetSize[1] * h) / w), targetSize[1]];
+            paddingTarget = [
+                [0, targetSize[0] - Math.round((targetSize[1] * h) / w)],
+                [0, 0],
+                [0, 0],
+            ];
+        }
+        return tf.tidy(() => {
+            return tf.browser
+                .fromPixels(crop)
+                .resizeNearestNeighbor(resizeTarget)
+                .pad(paddingTarget, 0)
+                .toFloat()
+                .expandDims();
+        });
+    });
+    const tensor = tf.concat(tensors);
+    let mean = tf.scalar(255 * REC_MEAN);
+    let std = tf.scalar(255 * REC_STD);
+    return tensor.sub(mean).div(std);
+}
+
+function decodeText(bestPath) {
+    const blank = 126;
+    let collapsed = "";
+    let lastChar = null;
+
+    for (const sequence of bestPath) {
+        const values = sequence.dataSync();
+        for (const k of values) {
+            if (k !== blank && k !== lastChar) {         
+                collapsed += VOCAB[k];
+                lastChar = k;
+            } else if (k === blank) {
+                lastChar = null;
+            }
+        }
+        collapsed += ' ';
     }
-    console.log('Heatmap data shape:', heatmapData.shape);
+    return collapsed.trim();
+}
+
+async function getHeatMapFromImage(imageObject) {
+    let tensor = preprocessImageForDetection(imageObject);
+    let prediction = await detectionModel.execute(tensor);
+    prediction = tf.squeeze(prediction, 0);
+    if (Array.isArray(prediction)) {
+        prediction = prediction[0];
+    }
+    const heatmapCanvas = document.createElement('canvas');
+    heatmapCanvas.width = imageObject.width;
+    heatmapCanvas.height = imageObject.height;
+    await tf.browser.toPixels(prediction, heatmapCanvas);
+    tensor.dispose();
+    prediction.dispose();
+    return heatmapCanvas;
+}
+
+function clamp(number, size) {
+    return Math.max(0, Math.min(number, size));
+}
+
+function transformBoundingBox(contour, id, size) {
+    let offset = (contour.width * contour.height * 1.8) / (2 * (contour.width + contour.height));
+    const p1 = clamp(contour.x - offset, size[1]) - 1;
+    const p2 = clamp(p1 + contour.width + 2 * offset, size[1]) - 1;
+    const p3 = clamp(contour.y - offset, size[0]) - 1;
+    const p4 = clamp(p3 + contour.height + 2 * offset, size[0]) - 1;
+    return {
+        id,
+        config: {
+            stroke: getRandomColor(),
+        },
+        coordinates: [
+            [p1 / size[1], p3 / size[0]],
+            [p2 / size[1], p3 / size[0]],
+            [p2 / size[1], p4 / size[0]],
+            [p1 / size[1], p4 / size[0]],
+        ],
+    };
+}
+
+function extractBoundingBoxesFromHeatmap(heatmapCanvas, size) {
+    let src = cv.imread(heatmapCanvas);
+    cv.cvtColor(src, src, cv.COLOR_RGBA2GRAY, 0);
+    cv.threshold(src, src, 77, 255, cv.THRESH_BINARY);
+    cv.morphologyEx(src, src, cv.MORPH_OPEN, cv.Mat.ones(2, 2, cv.CV_8U));
+    let contours = new cv.MatVector();
+    let hierarchy = new cv.Mat();
+    cv.findContours(src, contours, hierarchy, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE);
     
-    const boundingBoxes = await Promise.resolve(extractBoundingBoxesFromHeatmap(heatmapData, TARGET_SIZE));
-    
-    batchTensor.dispose();
-    predictions.dispose();
-    if (heatmapData !== predictions) {
-        heatmapData.dispose();
+    const boundingBoxes = [];
+    for (let i = 0; i < contours.size(); ++i) {
+        const contourBoundingBox = cv.boundingRect(contours.get(i));
+        if (contourBoundingBox.width > 2 && contourBoundingBox.height > 2) {
+            boundingBoxes.unshift(transformBoundingBox(contourBoundingBox, i, size));
+        }
     }
     
-    console.log('Returning bounding boxes:', boundingBoxes.length);
+    src.delete();
+    contours.delete();
+    hierarchy.delete();
     return boundingBoxes;
 }
 
-function preprocessCrops(crops) {
-    const resizedCrops = crops.map(crop => {
-        const canvas = document.createElement('canvas');
-        canvas.width = 32;
-        canvas.height = 128;
-        const ctx = canvas.getContext('2d');
-        ctx.drawImage(crop, 0, 0, canvas.width, canvas.height);
-        return tf.browser.fromPixels(canvas);
-    });
-
-    const batchTensor = tf.stack(resizedCrops);
-    const mean = tf.tensor1d([255 * REC_MEAN, 255 * REC_MEAN, 255 * REC_MEAN]);
-    const std = tf.tensor1d([255 * REC_STD, 255 * REC_STD, 255 * REC_STD]);
-    return batchTensor.div(std).sub(mean).expandDims(0);
+function useCPU() {
+    tf.setBackend('cpu');
+    console.log('Switched to CPU backend');
 }
 
-async function recognizeBatch(crops) {
-    const batchTensor = preprocessCrops(crops);
-    const predictions = await recognitionModel.executeAsync(batchTensor);
-    const probabilities = tf.softmax(predictions, -1);
-    const bestPaths = tf.unstack(tf.argMax(probabilities, -1), 0);
-    batchTensor.dispose();
-    predictions.dispose();
-    probabilities.dispose();
-    return bestPaths;
+function getRandomColor() {
+    return '#' + Math.floor(Math.random()*16777215).toString(16);
 }
 
 async function detectAndRecognizeText(imageElement) {
+    
     if (isMobile()) {
         useCPU(); // Switch to CPU for mobile devices
     }
-
+    //const size = [512, 512];
     const heatmapCanvas = await getHeatMapFromImage(imageElement);
     const boundingBoxes = extractBoundingBoxesFromHeatmap(heatmapCanvas, TARGET_SIZE);
+    // console.log('extractBoundingBoxesFromHeatmap', boundingBoxes);
 
     previewCanvas.width = TARGET_SIZE[0];
     previewCanvas.height = TARGET_SIZE[1];
@@ -210,8 +293,11 @@ async function detectAndRecognizeText(imageElement) {
 
     let fullText = '';
     const crops = [];
+    
+    try {
 
     for (const box of boundingBoxes) {
+        // Draw bounding box
         const [x1, y1] = box.coordinates[0];
         const [x2, y2] = box.coordinates[2];
         const width = (x2 - x1) * imageElement.width;
@@ -223,8 +309,9 @@ async function detectAndRecognizeText(imageElement) {
         ctx.lineWidth = 2;
         ctx.strokeRect(x, y, width, height);
 
+        // Create crop
         const croppedCanvas = document.createElement('canvas');
-        croppedCanvas.width = Math.min(width, 128);
+        croppedCanvas.width = Math.min(width, 128)
         croppedCanvas.height = Math.min(height, 32);
         croppedCanvas.getContext('2d').drawImage(
             imageElement, 
@@ -244,12 +331,16 @@ async function detectAndRecognizeText(imageElement) {
     }
 
     // Process crops in batches
-    const batchSize = BATCH_SIZE;
+    const batchSize = isMobile() ? 32 : 32;
     for (let i = 0; i < crops.length; i += batchSize) {
         const batch = crops.slice(i, i + batchSize);
-        const bestPaths = await recognizeBatch(batch.map(crop => crop.canvas));
+        const inputTensor = preprocessImageForRecognition(batch.map(crop => crop.canvas));
 
-        const words = decodeText(bestPaths);
+        const predictions = await recognitionModel.executeAsync(inputTensor);
+        const probabilities = tf.softmax(predictions, -1);
+        const bestPath = tf.unstack(tf.argMax(probabilities, -1), 0);
+        
+        const words = decodeText(bestPath);
 
         // Associate each word with its bounding box
         words.split(' ').forEach((word, index) => {
@@ -260,9 +351,20 @@ async function detectAndRecognizeText(imageElement) {
                 });
             }
         });
-    }
 
+        tf.dispose([inputTensor, predictions, probabilities, ...bestPath]);
+    }
+    
     return extractedData;
+    
+    } catch(error) {
+        
+        console.error('Error in detectAndRecognizeText:', error);
+        throw error;
+   
+    } finally {
+        tf.disposeVariables(); // Clean up any remaining tensors
+    }
 }
 
 function disableCaptureButton() {
@@ -274,6 +376,7 @@ function enableCaptureButton() {
     captureButton.disabled = false;
     captureButton.textContent = 'Capture';
 }
+
 
 async function handleCapture() {
     disableCaptureButton();
@@ -312,8 +415,8 @@ async function handleCapture() {
 }
 
 function isMobile() {
-    return false;
-    //return /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+    console.log('navigator.userAgent',navigator.userAgent);
+    return /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
 }
 
 function handleConfirm() {
@@ -381,141 +484,6 @@ function resetUI() {
 function clearCanvas() {
     canvas.getContext('2d').clearRect(0, 0, canvas.width, canvas.height);
     previewCanvas.getContext('2d').clearRect(0, 0, previewCanvas.width, previewCanvas.height);
-}
-
-function clamp(number, size) {
-    return Math.max(0, Math.min(number, size));
-}
-
-function transformBoundingBox(contour, id, size) {
-    let offset = (contour.width * contour.height * 1.8) / (2 * (contour.width + contour.height));
-    const p1 = clamp(contour.x - offset, size[1]) - 1;
-    const p2 = clamp(p1 + contour.width + 2 * offset, size[1]) - 1;
-    const p3 = clamp(contour.y - offset, size[0]) - 1;
-    const p4 = clamp(p3 + contour.height + 2 * offset, size[0]) - 1;
-    return {
-        id,
-        config: {
-            stroke: getRandomColor(),
-        },
-        coordinates: [
-            [p1 / size[1], p3 / size[0]],
-            [p2 / size[1], p3 / size[0]],
-            [p2 / size[1], p4 / size[0]],
-            [p1 / size[1], p4 / size[0]],
-        ],
-    };
-}
-    
-function extractBoundingBoxesFromHeatmap(heatmapData, size) {
-    console.log('Entering extractBoundingBoxesFromHeatmap');
-    console.log('Heatmap data type:', typeof heatmapData);
-    console.log('Is TensorFlow tensor:', heatmapData instanceof tf.Tensor);
-    
-    if (heatmapData instanceof tf.Tensor) {
-        console.log('Tensor shape:', heatmapData.shape);
-        console.log('Tensor rank:', heatmapData.rank);
-    }
-    
-    let tensorData;
-    if (heatmapData instanceof tf.Tensor) {
-        // Ensure the tensor is 2D
-        if (heatmapData.rank > 2) {
-            console.log('Squeezing tensor');
-            heatmapData = heatmapData.squeeze();
-        }
-        console.log('Squeezed tensor shape:', heatmapData.shape);
-        
-        // Attempt to synchronously get the data
-        tensorData = heatmapData.dataSync();
-        console.log('Initial tensorData length:', tensorData.length);
-        
-        // If the data is not immediately available, wait for it
-        if (tensorData.length === 0) {
-            console.log('Data not immediately available, waiting...');
-            return new Promise((resolve) => {
-                setTimeout(() => {
-                    tensorData = heatmapData.dataSync();
-                    console.log('Delayed tensorData length:', tensorData.length);
-                    resolve(processData(tensorData, size));
-                }, 1000); // Wait for 1 second
-            });
-        }
-    } else if (Array.isArray(heatmapData) || heatmapData instanceof Float32Array || heatmapData instanceof Float64Array) {
-        tensorData = heatmapData;
-    } else {
-        console.error('Invalid input type for heatmapData');
-        return [];
-    }
-    
-    return processData(tensorData, size);
-}
-
-function processData(tensorData, size) {
-    console.log('Processing data');
-    console.log('Data length:', tensorData.length);
-    console.log('Expected data length:', size[0] * size[1]);
-    
-    // Check if the data length matches the expected size
-    if (tensorData.length !== size[0] * size[1]) {
-        console.error('Data length does not match expected size');
-        return [];
-    }
-    
-    // Create or reuse canvas
-    if (!reusableCanvas) {
-        reusableCanvas = document.createElement('canvas');
-    }
-    reusableCanvas.width = size[1];
-    reusableCanvas.height = size[0];
-    const ctx = reusableCanvas.getContext('2d');
-    
-    // Create ImageData with the correct dimensions
-    const imageData = ctx.createImageData(size[1], size[0]);
-    
-    // Fill the ImageData
-    for (let i = 0; i < tensorData.length; i++) {
-        const value = Math.floor(tensorData[i] * 255); // Assuming values are in [0, 1]
-        imageData.data[i * 4] = value;     // R
-        imageData.data[i * 4 + 1] = value; // G
-        imageData.data[i * 4 + 2] = value; // B
-        imageData.data[i * 4 + 3] = 255;   // A (fully opaque)
-    }
-    
-    ctx.putImageData(imageData, 0, 0);
-
-    // Now use the canvas with cv.imread
-    let src = cv.imread(reusableCanvas);
-    cv.cvtColor(src, src, cv.COLOR_RGBA2GRAY, 0);
-    cv.threshold(src, src, 77, 255, cv.THRESH_BINARY);
-    cv.morphologyEx(src, src, cv.MORPH_OPEN, cv.Mat.ones(2, 2, cv.CV_8U));
-    let contours = new cv.MatVector();
-    let hierarchy = new cv.Mat();
-    cv.findContours(src, contours, hierarchy, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE);
-    
-    const boundingBoxes = [];
-    for (let i = 0; i < contours.size(); ++i) {
-        const contourBoundingBox = cv.boundingRect(contours.get(i));
-        if (contourBoundingBox.width > 2 && contourBoundingBox.height > 2) {
-            boundingBoxes.unshift(transformBoundingBox(contourBoundingBox, i, size));
-        }
-    }
-    
-    src.delete();
-    contours.delete();
-    hierarchy.delete();
-    
-    console.log('Extracted bounding boxes:', boundingBoxes.length);
-    return boundingBoxes;
-}
-
-function useCPU() {
-    tf.setBackend('cpu');
-    console.log('Switched to CPU backend');
-}
-
-function getRandomColor() {
-    return '#' + Math.floor(Math.random()*16777215).toString(16);
 }
 
 function monitorMemoryUsage() {
