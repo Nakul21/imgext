@@ -408,12 +408,21 @@ function extractBoundingBoxesFromHeatmap(heatmapTensor, size) {
     reusableCanvas.height = size[0];
     const ctx = reusableCanvas.getContext('2d');
     
-    // Get the data from the tensor and draw it on the canvas
-    const imageData = new ImageData(
-        new Uint8ClampedArray(heatmapTensor.dataSync()),
-        size[1],
-        size[0]
-    );
+    // Get the data from the tensor
+    const tensorData = heatmapTensor.dataSync();
+    
+    // Create ImageData with the correct dimensions
+    const imageData = ctx.createImageData(size[1], size[0]);
+    
+    // Fill the ImageData
+    for (let i = 0; i < tensorData.length; i++) {
+        const value = Math.floor(tensorData[i] * 255); // Assuming tensor values are in [0, 1]
+        imageData.data[i * 4] = value;     // R
+        imageData.data[i * 4 + 1] = value; // G
+        imageData.data[i * 4 + 2] = value; // B
+        imageData.data[i * 4 + 3] = 255;   // A (fully opaque)
+    }
+    
     ctx.putImageData(imageData, 0, 0);
 
     // Now use the canvas with cv.imread
@@ -439,7 +448,6 @@ function extractBoundingBoxesFromHeatmap(heatmapTensor, size) {
     return boundingBoxes;
 }
     
-
 
 function useCPU() {
     tf.setBackend('cpu');
