@@ -399,7 +399,7 @@ function transformBoundingBox(contour, id, size) {
     };
 }
 
-function extractBoundingBoxesFromHeatmap(heatmapTensor, size) {
+function extractBoundingBoxesFromHeatmap(heatmapData, size) {
     // Create or reuse canvas
     if (!reusableCanvas) {
         reusableCanvas = document.createElement('canvas');
@@ -408,15 +408,29 @@ function extractBoundingBoxesFromHeatmap(heatmapTensor, size) {
     reusableCanvas.height = size[0];
     const ctx = reusableCanvas.getContext('2d');
     
-    // Get the data from the tensor
-    const tensorData = heatmapTensor.dataSync();
+    // Get the data from the input
+    let tensorData;
+    if (heatmapData instanceof tf.Tensor) {
+        tensorData = heatmapData.dataSync();
+    } else if (Array.isArray(heatmapData) || heatmapData instanceof Float32Array || heatmapData instanceof Float64Array) {
+        tensorData = heatmapData;
+    } else {
+        console.error('Invalid input type for heatmapData');
+        return [];
+    }
+    
+    // Check if the data length matches the expected size
+    if (tensorData.length !== size[0] * size[1]) {
+        console.error('Data length does not match expected size');
+        return [];
+    }
     
     // Create ImageData with the correct dimensions
     const imageData = ctx.createImageData(size[1], size[0]);
     
     // Fill the ImageData
     for (let i = 0; i < tensorData.length; i++) {
-        const value = Math.floor(tensorData[i] * 255); // Assuming tensor values are in [0, 1]
+        const value = Math.floor(tensorData[i] * 255); // Assuming values are in [0, 1]
         imageData.data[i * 4] = value;     // R
         imageData.data[i * 4 + 1] = value; // G
         imageData.data[i * 4 + 2] = value; // B
