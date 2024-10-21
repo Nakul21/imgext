@@ -136,13 +136,17 @@ function preprocessImages(images) {
     const batchTensor = tf.stack(resizedImages);
     const mean = tf.tensor1d([255 * DET_MEAN, 255 * DET_MEAN, 255 * DET_MEAN]);
     const std = tf.tensor1d([255 * DET_STD, 255 * DET_STD, 255 * DET_STD]);
-    return batchTensor.div(std).sub(mean).expandDims(3);
+    return batchTensor.div(std).sub(mean).expandDims(0);
 }
 
 async function getHeatMapFromImage(images) {
     const batchTensor = preprocessImages(images);
     const predictions = await detectionModel.execute(batchTensor);
-    predictions = tf.squeeze(predictions, 0);
+    // If we're processing a single image, squeeze the batch dimension
+    if (!Array.isArray(images)) {
+        predictions = tf.squeeze(predictions, [0]);
+    }
+    //predictions = tf.squeeze(predictions, 0);
     batchTensor.dispose();
     return predictions;
 }
