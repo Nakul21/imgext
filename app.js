@@ -136,7 +136,7 @@ function preprocessImages(images) {
     return batchTensor.div(std).sub(mean).expandDims(3);
 }
 
-async function getHeatMapsFromImages(images) {
+async function getHeatMapFromImage(images) {
     const batchTensor = preprocessImages(images);
     const predictions = await detectionModel.execute(batchTensor);
     predictions = tf.squeeze(predictions, 0);
@@ -357,6 +357,63 @@ function resetUI() {
 function clearCanvas() {
     canvas.getContext('2d').clearRect(0, 0, canvas.width, canvas.height);
     previewCanvas.getContext('2d').clearRect(0, 0, previewCanvas.width, previewCanvas.height);
+}
+
+function clamp(number, size) {
+    return Math.max(0, Math.min(number, size));
+}
+
+function transformBoundingBox(contour, id, size) {
+    let offset = (contour.width * contour.height * 1.8) / (2 * (contour.width + contour.height));
+    const p1 = clamp(contour.x - offset, size[1]) - 1;
+    const p2 = clamp(p1 + contour.width + 2 * offset, size[1]) - 1;
+    const p3 = clamp(contour.y - offset, size[0]) - 1;
+    const p4 = clamp(p3 + contour.height + 2 * offset, size[0]) - 1;
+    return {
+        id,
+        config: {
+            stroke: getRandomColor(),
+        },
+        coordinates: [
+            [p1 / size[1], p3 / size[0]],
+            [p2 / size[1], p3 / size[0]],
+            [p2 / size[1], p4 / size[0]],
+            [p1 / size[1], p4 / size[0]],
+        ],
+    };
+}
+
+function extractBoundingBoxesFromHeatmap(heatmapCanvas, size) {
+    let src = cv.imread(heatmapCanvas);
+    cv.cvtColor(src, src, cv.COLOR_RGBA2GRAY, 0);
+    cv.threshold(src, src, 77, 255, cv.THRESH_BINARY);
+    cv.morphologyEx(src, src, cv.MORPH_OPEN, cv.Mat.ones(2, 2, cv.CV_8U));
+    let contours = new cv.MatVector();
+    let hierarchy = new cv.Mat();
+    cv.findContours(src, contours, hierarchy, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE);
+    
+    const boundingBoxes = [];
+    for (let i = 0; i < contours.size(); ++i) {
+        const contourBoundingBox = cv.boundingRect(contours.get(i));
+        if (contourBoundingBox.width > 2 && contourBoundingBox.height > 2) {
+            boundingBoxes.unshift(transformBoundingBox(contourBoundingBox, i, size));
+        }
+    }
+    
+    src.delete();
+    contours.delete();
+    hierarchy.delete();
+    return boundingBoxes;
+}
+
+
+function useCPU() {
+    tf.setBackend('cpu');
+    console.log('Switched to CPU backend');
+}
+
+function getRandomColor() {
+    return '#' + Math.floor(Math.random()*16777215).toString(16);
 }
 
 function monitorMemoryUsage() {
