@@ -154,9 +154,9 @@ async function getHeatMapFromImage(images) {
     const boundingBoxes = extractBoundingBoxesFromHeatmap(heatmapTensor, TARGET_SIZE);
     
     batchTensor.dispose();
-    predictions.dispose();
-    heatmapTensor.dispose();
-    
+    if (heatmapData instanceof tf.Tensor) {
+        heatmapData.dispose();
+    };    
     return boundingBoxes;
 }
 
