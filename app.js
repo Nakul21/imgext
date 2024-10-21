@@ -160,7 +160,7 @@ function preprocessCrops(crops) {
     const batchTensor = tf.stack(resizedCrops);
     const mean = tf.tensor1d([255 * REC_MEAN, 255 * REC_MEAN, 255 * REC_MEAN]);
     const std = tf.tensor1d([255 * REC_STD, 255 * REC_STD, 255 * REC_STD]);
-    return batchTensor.div(std).sub(mean).expandDims(3);
+    return batchTensor.div(std).sub(mean).expandDims(0);
 }
 
 async function recognizeBatch(crops) {
