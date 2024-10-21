@@ -32,6 +32,7 @@ let extractedText = '';
 let extractedData = [];
 let detectionModel;
 let recognitionModel;
+let reusableCanvas;
 
 async function isWebGPUSupported() {
     if (!navigator.gpu) {
@@ -136,19 +137,27 @@ function preprocessImages(images) {
     const batchTensor = tf.stack(resizedImages);
     const mean = tf.tensor1d([255 * DET_MEAN, 255 * DET_MEAN, 255 * DET_MEAN]);
     const std = tf.tensor1d([255 * DET_STD, 255 * DET_STD, 255 * DET_STD]);
-    return batchTensor.div(std).sub(mean).expandDims(0);
+    return batchTensor.div(std).sub(mean);
 }
 
 async function getHeatMapFromImage(images) {
     const batchTensor = preprocessImages(images);
     const predictions = await detectionModel.execute(batchTensor);
-    // If we're processing a single image, squeeze the batch dimension
+    
+    let heatmapTensor;
     if (!Array.isArray(images)) {
-        predictions = tf.squeeze(predictions, [0]);
+        heatmapTensor = predictions.squeeze([0]);
+    } else {
+        heatmapTensor = predictions;
     }
-    //predictions = tf.squeeze(predictions, 0);
+    
+    const boundingBoxes = extractBoundingBoxesFromHeatmap(heatmapTensor, TARGET_SIZE);
+    
     batchTensor.dispose();
-    return predictions;
+    predictions.dispose();
+    heatmapTensor.dispose();
+    
+    return boundingBoxes;
 }
 
 function preprocessCrops(crops) {
@@ -390,8 +399,25 @@ function transformBoundingBox(contour, id, size) {
     };
 }
 
-function extractBoundingBoxesFromHeatmap(heatmapCanvas, size) {
-    let src = cv.imread(heatmapCanvas);
+function extractBoundingBoxesFromHeatmap(heatmapTensor, size) {
+    // Create or reuse canvas
+    if (!reusableCanvas) {
+        reusableCanvas = document.createElement('canvas');
+    }
+    reusableCanvas.width = size[1];
+    reusableCanvas.height = size[0];
+    const ctx = reusableCanvas.getContext('2d');
+    
+    // Get the data from the tensor and draw it on the canvas
+    const imageData = new ImageData(
+        new Uint8ClampedArray(heatmapTensor.dataSync()),
+        size[1],
+        size[0]
+    );
+    ctx.putImageData(imageData, 0, 0);
+
+    // Now use the canvas with cv.imread
+    let src = cv.imread(reusableCanvas);
     cv.cvtColor(src, src, cv.COLOR_RGBA2GRAY, 0);
     cv.threshold(src, src, 77, 255, cv.THRESH_BINARY);
     cv.morphologyEx(src, src, cv.MORPH_OPEN, cv.Mat.ones(2, 2, cv.CV_8U));
@@ -412,6 +438,7 @@ function extractBoundingBoxesFromHeatmap(heatmapCanvas, size) {
     hierarchy.delete();
     return boundingBoxes;
 }
+    
 
 
 function useCPU() {
