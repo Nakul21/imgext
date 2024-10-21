@@ -141,7 +141,6 @@ function preprocessImages(images) {
 }
 
 async function getHeatMapFromImage(images) {
-async function getHeatMapFromImage(images) {
     console.log('Entering getHeatMapFromImage');
     const batchTensor = preprocessImages(images);
     console.log('Batch tensor shape:', batchTensor.shape);
@@ -407,6 +406,7 @@ function transformBoundingBox(contour, id, size) {
         ],
     };
 }
+    
 function extractBoundingBoxesFromHeatmap(heatmapData, size) {
     console.log('Entering extractBoundingBoxesFromHeatmap');
     console.log('Heatmap data type:', typeof heatmapData);
