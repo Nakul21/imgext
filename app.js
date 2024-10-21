@@ -141,22 +141,31 @@ function preprocessImages(images) {
 }
 
 async function getHeatMapFromImage(images) {
+async function getHeatMapFromImage(images) {
+    console.log('Entering getHeatMapFromImage');
     const batchTensor = preprocessImages(images);
+    console.log('Batch tensor shape:', batchTensor.shape);
+    
     const predictions = await detectionModel.execute(batchTensor);
+    console.log('Predictions shape:', predictions.shape);
     
-    let heatmapTensor;
+    let heatmapData;
     if (!Array.isArray(images)) {
-        heatmapTensor = predictions.squeeze([0]);
+        heatmapData = predictions.squeeze();
     } else {
-        heatmapTensor = predictions;
+        heatmapData = predictions;
     }
+    console.log('Heatmap data shape:', heatmapData.shape);
     
-    const boundingBoxes = extractBoundingBoxesFromHeatmap(heatmapTensor, TARGET_SIZE);
+    const boundingBoxes = await Promise.resolve(extractBoundingBoxesFromHeatmap(heatmapData, TARGET_SIZE));
     
     batchTensor.dispose();
-    if (heatmapData instanceof tf.Tensor) {
+    predictions.dispose();
+    if (heatmapData !== predictions) {
         heatmapData.dispose();
-    };    
+    }
+    
+    console.log('Returning bounding boxes:', boundingBoxes.length);
     return boundingBoxes;
 }
 
@@ -398,20 +407,40 @@ function transformBoundingBox(contour, id, size) {
         ],
     };
 }
-
 function extractBoundingBoxesFromHeatmap(heatmapData, size) {
-    // Create or reuse canvas
-    if (!reusableCanvas) {
-        reusableCanvas = document.createElement('canvas');
-    }
-    reusableCanvas.width = size[1];
-    reusableCanvas.height = size[0];
-    const ctx = reusableCanvas.getContext('2d');
+    console.log('Entering extractBoundingBoxesFromHeatmap');
+    console.log('Heatmap data type:', typeof heatmapData);
+    console.log('Is TensorFlow tensor:', heatmapData instanceof tf.Tensor);
     
-    // Get the data from the input
+    if (heatmapData instanceof tf.Tensor) {
+        console.log('Tensor shape:', heatmapData.shape);
+        console.log('Tensor rank:', heatmapData.rank);
+    }
+    
     let tensorData;
     if (heatmapData instanceof tf.Tensor) {
+        // Ensure the tensor is 2D
+        if (heatmapData.rank > 2) {
+            console.log('Squeezing tensor');
+            heatmapData = heatmapData.squeeze();
+        }
+        console.log('Squeezed tensor shape:', heatmapData.shape);
+        
+        // Attempt to synchronously get the data
         tensorData = heatmapData.dataSync();
+        console.log('Initial tensorData length:', tensorData.length);
+        
+        // If the data is not immediately available, wait for it
+        if (tensorData.length === 0) {
+            console.log('Data not immediately available, waiting...');
+            return new Promise((resolve) => {
+                setTimeout(() => {
+                    tensorData = heatmapData.dataSync();
+                    console.log('Delayed tensorData length:', tensorData.length);
+                    resolve(processData(tensorData, size));
+                }, 1000); // Wait for 1 second
+            });
+        }
     } else if (Array.isArray(heatmapData) || heatmapData instanceof Float32Array || heatmapData instanceof Float64Array) {
         tensorData = heatmapData;
     } else {
@@ -419,11 +448,27 @@ function extractBoundingBoxesFromHeatmap(heatmapData, size) {
         return [];
     }
     
+    return processData(tensorData, size);
+}
+
+function processData(tensorData, size) {
+    console.log('Processing data');
+    console.log('Data length:', tensorData.length);
+    console.log('Expected data length:', size[0] * size[1]);
+    
     // Check if the data length matches the expected size
     if (tensorData.length !== size[0] * size[1]) {
         console.error('Data length does not match expected size');
         return [];
     }
+    
+    // Create or reuse canvas
+    if (!reusableCanvas) {
+        reusableCanvas = document.createElement('canvas');
+    }
+    reusableCanvas.width = size[1];
+    reusableCanvas.height = size[0];
+    const ctx = reusableCanvas.getContext('2d');
     
     // Create ImageData with the correct dimensions
     const imageData = ctx.createImageData(size[1], size[0]);
@@ -459,9 +504,10 @@ function extractBoundingBoxesFromHeatmap(heatmapData, size) {
     src.delete();
     contours.delete();
     hierarchy.delete();
+    
+    console.log('Extracted bounding boxes:', boundingBoxes.length);
     return boundingBoxes;
 }
-    
 
 function useCPU() {
     tf.setBackend('cpu');
