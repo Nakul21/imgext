@@ -121,7 +121,10 @@ async function setupCamera() {
 }
 
 function preprocessImages(images) {
-    const resizedImages = images.map(img => {
+    // Ensure images is always an array
+    const imageArray = Array.isArray(images) ? images : [images];
+    
+    const resizedImages = imageArray.map(img => {
         const canvas = document.createElement('canvas');
         canvas.width = TARGET_SIZE[0];
         canvas.height = TARGET_SIZE[1];
