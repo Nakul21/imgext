@@ -491,6 +491,8 @@ function monitorMemoryUsage() {
         const info = tf.memory();
         console.log('Memory usage:', {
             numTensors: info.numTensors,
+            numBytesInGPU: info.numBytesInGPU,
+            numBytes: info.numBytes,
             numDataBuffers: info.numDataBuffers,
             unreliable: info.unreliable,
             reasons: info.reasons
