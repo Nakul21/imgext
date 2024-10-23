@@ -1,462 +1,172 @@
-// Constants
-const BATCH_SIZE = 16; // Define your batch size here
-const TARGET_SIZE = [512, 512];
-const REC_MEAN = 0.694;
-const REC_STD = 0.298;
-const DET_MEAN = 0.785;
-const DET_STD = 0.275;
-const VOCAB = "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ!\"#$%&'()*+,-./:;<=>?@[\\]^_`{|}~°£€¥¢฿àâéèêëîïôùûüçÀÂÉÈÊËÎÏÔÙÛÜÇ";
-const MODEL_PATHS = {
-    detection: 'models/db_mobilenet_v2/model.json',
-    recognition: 'models/crnn_mobilenet_v2/model.json'
-};
-
-// DOM Elements
-const video = document.getElementById('video');
-const canvas = document.getElementById('canvas');
-const previewCanvas = document.getElementById('previewCanvas');
-const captureButton = document.getElementById('captureButton');
-const confirmButton = document.getElementById('confirmButton');
-const retryButton = document.getElementById('retryButton');
-const actionButtons = document.getElementById('actionButtons');
-const sendButton = document.getElementById('sendButton');
-const discardButton = document.getElementById('discardButton');
-const resultElement = document.getElementById('result');
-const apiResponseElement = document.getElementById('apiResponse');
-const loadingIndicator = document.getElementById('loadingIndicator');
-const appContainer = document.getElementById('appContainer');
-
-let modelLoadingPromise;
-let imageDataUrl = '';
-let extractedText = '';
-let extractedData = [];
-let detectionModel;
-let recognitionModel;
-
-async function isWebGPUSupported() {
-    if (!navigator.gpu) {
-        return false;
-    }
-    try {
-        const adapter = await navigator.gpu.requestAdapter();
-        if (!adapter) {
-            return false;
-        }
-        const device = await adapter.requestDevice();
-        return !!device;
-    } catch (e) {
-        console.error("Error checking WebGPU support:", e);
-        return false;
-    }
-}
-
-async function fallbackToWebGLorCPU() {
-    try {
-        await tf.setBackend('webgl');
-        console.log('Fallback to WebGL backend successful');
-    } catch (e) {
-        console.error('Failed to set WebGL backend:', e);
-        useCPU();
-    }
-}
-
-function showLoading(message) {
-    loadingIndicator.textContent = message;
-    loadingIndicator.style.display = 'block';
-    //appContainer.style.display = 'none';
-}
-
-function hideLoading() {
-    loadingIndicator.style.display = 'none';
-    //appContainer.style.display = 'block';
-}
-
-async function loadModels() {
-    try {
-        showLoading('Loading detection model...');
-        detectionModel = await tf.loadGraphModel(MODEL_PATHS.detection);
-        
-        showLoading('Loading recognition model...');
-        recognitionModel = await tf.loadGraphModel(MODEL_PATHS.recognition);
-        
-        console.log('Models loaded successfully');
-        hideLoading();
-    } catch (error) {
-        console.error('Error loading models:', error);
-        showLoading('Error loading models. Please refresh the page.');
-    }
-}
-
-function initializeModelLoading() {
-    modelLoadingPromise = loadModels();
-}
-
-async function ensureModelsLoaded() {
-    if (modelLoadingPromise) {
-        await modelLoadingPromise;
-    }
-}
-
-async function setupCamera() {
-    showLoading('Setting up camera...');
-    try {
-        const stream = await navigator.mediaDevices.getUserMedia({ 
-            video: { 
-                facingMode: 'environment',
-                width: { ideal: 512 },
-                height: { ideal: 512 }
-            } 
-        });
-        video.srcObject = stream;
-        return new Promise((resolve) => {
-            video.onloadedmetadata = () => {
-                hideLoading();
-                resolve(video);
-            };
-        });
-    } catch (error) {
-        console.error('Error setting up camera:', error);
-        showLoading('Error setting up camera. Please check permissions and refresh.');
-    }
-}
-
-function preprocessImages(images) {
-    const resizedImages = images.map(img => {
-        const canvas = document.createElement('canvas');
-        canvas.width = TARGET_SIZE[0];
-        canvas.height = TARGET_SIZE[1];
-        const ctx = canvas.getContext('2d');
-        ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-        return tf.browser.fromPixels(canvas);
-    });
-
-    const batchTensor = tf.stack(resizedImages);
-    const mean = tf.tensor1d([255 * DET_MEAN, 255 * DET_MEAN, 255 * DET_MEAN]);
-    const std = tf.tensor1d([255 * DET_STD, 255 * DET_STD, 255 * DET_STD]);
-    return batchTensor.div(std).sub(mean).expandDims(3);
-}
-
-async function getHeatMapsFromImages(images) {
-    const batchTensor = preprocessImages(images);
-    const predictions = await detectionModel.execute(batchTensor);
-    predictions = tf.squeeze(predictions, 0);
-    batchTensor.dispose();
-    return predictions;
-}
-
-function preprocessCrops(crops) {
-    const resizedCrops = crops.map(crop => {
-        const canvas = document.createElement('canvas');
-        canvas.width = 32;
-        canvas.height = 128;
-        const ctx = canvas.getContext('2d');
-        ctx.drawImage(crop, 0, 0, canvas.width, canvas.height);
-        return tf.browser.fromPixels(canvas);
-    });
-
-    const batchTensor = tf.stack(resizedCrops);
-    const mean = tf.tensor1d([255 * REC_MEAN, 255 * REC_MEAN, 255 * REC_MEAN]);
-    const std = tf.tensor1d([255 * REC_STD, 255 * REC_STD, 255 * REC_STD]);
-    return batchTensor.div(std).sub(mean).expandDims(3);
-}
-
-async function recognizeBatch(crops) {
-    const batchTensor = preprocessCrops(crops);
-    const predictions = await recognitionModel.executeAsync(batchTensor);
-    const probabilities = tf.softmax(predictions, -1);
-    const bestPaths = tf.unstack(tf.argMax(probabilities, -1), 0);
-    batchTensor.dispose();
-    predictions.dispose();
-    probabilities.dispose();
-    return bestPaths;
-}
 
 async function detectAndRecognizeText(imageElement) {
     if (isMobile()) {
-        useCPU(); // Switch to CPU for mobile devices
+        useCPU();
     }
 
-    const heatmapCanvas = await getHeatMapFromImage(imageElement);
-    const boundingBoxes = extractBoundingBoxesFromHeatmap(heatmapCanvas, TARGET_SIZE);
-
-    previewCanvas.width = TARGET_SIZE[0];
-    previewCanvas.height = TARGET_SIZE[1];
-    const ctx = previewCanvas.getContext('2d');
-    ctx.drawImage(imageElement, 0, 0);
-
-    let fullText = '';
-    const crops = [];
-
-    for (const box of boundingBoxes) {
-        const [x1, y1] = box.coordinates[0];
-        const [x2, y2] = box.coordinates[2];
-        const width = (x2 - x1) * imageElement.width;
-        const height = (y2 - y1) * imageElement.height;
-        const x = x1 * imageElement.width;
-        const y = y1 * imageElement.height;
-
-        ctx.strokeStyle = box.config.stroke;
-        ctx.lineWidth = 2;
-        ctx.strokeRect(x, y, width, height);
-
-        const croppedCanvas = document.createElement('canvas');
-        croppedCanvas.width = Math.min(width, 128);
-        croppedCanvas.height = Math.min(height, 32);
-        croppedCanvas.getContext('2d').drawImage(
-            imageElement, 
-            x, y, width, height,
-            0, 0, width, height
-        );
-
-        crops.push({
-            canvas: croppedCanvas,
-            bbox: {
-                x: Math.round(x),
-                y: Math.round(y),
-                width: Math.round(width),
-                height: Math.round(height)
-            }
-        });
-    }
-
-    // Process crops in batches
-    const batchSize = BATCH_SIZE;
-    for (let i = 0; i < crops.length; i += batchSize) {
-        const batch = crops.slice(i, i + batchSize);
-        const bestPaths = await recognizeBatch(batch.map(crop => crop.canvas));
-
-        const words = decodeText(bestPaths);
-
-        // Associate each word with its bounding box
-        words.split(' ').forEach((word, index) => {
-            if (word && batch[index]) {
-                extractedData.push({
-                    word: word,
-                    boundingBox: batch[index].bbox
-                });
-            }
-        });
-    }
-
-    return extractedData;
-}
-
-function disableCaptureButton() {
-    captureButton.disabled = true;
-    captureButton.textContent = 'Processing...';
-}
-
-function enableCaptureButton() {
-    captureButton.disabled = false;
-    captureButton.textContent = 'Capture';
-}
-
-async function handleCapture() {
-    disableCaptureButton();
-    showLoading('Processing image...');
-
-    await ensureModelsLoaded();  // Ensure models are loaded before processing
-
-    const targetSize = TARGET_SIZE;
-    canvas.width = targetSize[0];
-    canvas.height = targetSize[1];
-    canvas.getContext('2d').drawImage(video, 0, 0, canvas.width, canvas.height);
-
-    imageDataUrl = canvas.toDataURL('image/jpeg', isMobile() ? 0.7 : 0.9);
+    let heatmapCanvas;
+    let boundingBoxes;
     
-    const img = new Image();
-    img.src = imageDataUrl;
-    img.onload = async () => {
-        try {
-            extractedData = await detectAndRecognizeText(img);
-            extractedText = extractedData.map(item => item.word).join(' ');
-            resultElement.textContent = `Extracted Text: ${extractedText}`;
-            
-            previewCanvas.style.display = 'block';
-            confirmButton.style.display = 'inline-block';
-            retryButton.style.display = 'inline-block';
-            captureButton.style.display = 'none';
-        } catch (error) {
-            console.error('Error during text extraction:', error);
-            resultElement.textContent = 'Error occurred during text extraction';
-        } finally {
-            enableCaptureButton();
-            hideLoading();
-            tf.disposeVariables();
-        }
-    };
-}
-
-function isMobile() {
-    return /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
-}
-
-function handleConfirm() {
-    toggleButtons(true);
-    previewCanvas.style.display = 'none';
-    confirmButton.style.display = 'none';
-    retryButton.style.display = 'none';
-}
-
-function handleRetry() {
-    resetUI();
-}
-
-async function handleSend() {
-    if (!extractedText) return;
-    apiResponseElement.textContent = 'Submitting...';
-    let msgKey = new Date().getTime();
     try {
-        const response = await fetch('https://kvdb.io/NyKpFtJ7v392NS8ibLiofx/'+msgKey, {
-            method: 'PUT',
-            body: JSON.stringify({
-                extractetAt: msgKey,
-                probableTextContent: extractedText,
-                boundingBoxes: extractedData,
-                userId: "imageExt",
-            }),
-            headers: {
-                'Content-type': 'application/json; charset=UTF-8',
-            },
-        });
+        // Wrap heatmap generation in tf.tidy to auto-dispose tensors
+        heatmapCanvas = await tf.tidy(() => getHeatMapFromImage(imageElement));
+        boundingBoxes = extractBoundingBoxesFromHeatmap(heatmapCanvas, TARGET_SIZE);
 
-        if (response.status !== 200) {
-            throw new Error('Failed to push this data to server');
-        } 
-        
-        apiResponseElement.textContent = 'Submitted the extract with ID : ' + msgKey; 
-        
-    } catch (error) {
-        console.error('Error submitting to server:', error);
-        apiResponseElement.textContent = 'Error occurred while submitting to server';
-    } finally {
-        resetUI();
-    }
-}
+        previewCanvas.width = TARGET_SIZE[0];
+        previewCanvas.height = TARGET_SIZE[1];
+        const ctx = previewCanvas.getContext('2d');
+        ctx.drawImage(imageElement, 0, 0);
 
-function toggleButtons(showActionButtons) {
-    captureButton.style.display = showActionButtons ? 'none' : 'block';
-    actionButtons.style.display = showActionButtons ? 'block' : 'none';
-}
+        let fullText = '';
+        const crops = [];
 
-function resetUI() {
-    toggleButtons(false);
-    resultElement.textContent = '';
-    apiResponseElement.textContent = '';
-    imageDataUrl = '';
-    extractedText = '';
-    extractedData = [];
-    clearCanvas();
-    previewCanvas.style.display = 'none';
-    confirmButton.style.display = 'none';
-    retryButton.style.display = 'none';
-    captureButton.style.display = 'block';
-}
+        // Generate crops
+        for (const box of boundingBoxes) {
+            const [x1, y1] = box.coordinates[0];
+            const [x2, y2] = box.coordinates[2];
+            const width = (x2 - x1) * imageElement.width;
+            const height = (y2 - y1) * imageElement.height;
+            const x = x1 * imageElement.width;
+            const y = y1 * imageElement.height;
 
-function clearCanvas() {
-    canvas.getContext('2d').clearRect(0, 0, canvas.width, canvas.height);
-    previewCanvas.getContext('2d').clearRect(0, 0, previewCanvas.width, previewCanvas.height);
-}
+            ctx.strokeStyle = box.config.stroke;
+            ctx.lineWidth = 2;
+            ctx.strokeRect(x, y, width, height);
 
-function monitorMemoryUsage() {
-    setInterval(() => {
-        const info = tf.memory();
-        console.log('Memory usage:', {
-            numTensors: info.numTensors,
-            numDataBuffers: info.numDataBuffers,
-            unreliable: info.unreliable,
-            reasons: info.reasons
-        });
-    }, 5000);
-}
+            const croppedCanvas = document.createElement('canvas');
+            croppedCanvas.width = Math.min(width, 128);
+            croppedCanvas.height = Math.min(height, 32);
+            croppedCanvas.getContext('2d').drawImage(
+                imageElement, 
+                x, y, width, height,
+                0, 0, width, height
+            );
 
-async function init() {
-    showLoading('Initializing...');
-    
-    await tf.ready();
-     
-    if (await isWebGPUSupported()){
-        console.log('WebGPU is supported. Attempting to set backend...');
-        try {
-            await tf.setBackend('webgpu');
-            console.log('Successfully set WebGPU backend');
-        } catch (e) {
-            console.error('Failed to set WebGPU backend:', e);
-            await fallbackToWebGLorCPU();
-        }
-    } else {
-        console.log('WebGPU is not supported');
-        await fallbackToWebGLorCPU();
-    }
-    
-    initializeModelLoading();
-    await setupCamera();
-    
-    captureButton.disabled = false;
-    captureButton.textContent = 'Capture';
-    
-    hideLoading();
-}
-
-function loadOpenCV() {
-    return new Promise((resolve) => {
-        const script = document.createElement('script');
-        script.src = 'https://docs.opencv.org/4.5.2/opencv.js';
-        script.onload = () => resolve();
-        document.body.appendChild(script);
-    });
-}
-
-// Event Listeners
-captureButton.addEventListener('click', handleCapture);
-captureButton.addEventListener('touchstart', handleCapture);
-confirmButton.addEventListener('click', handleConfirm);
-confirmButton.addEventListener('touchstart', handleConfirm);
-retryButton.addEventListener('click', handleRetry);
-retryButton.addEventListener('touchstart', handleRetry);
-sendButton.addEventListener('click', handleSend);
-sendButton.addEventListener('touchstart', handleSend);
-discardButton.addEventListener('click', resetUI);
-discardButton.addEventListener('touchstart', resetUI);
-
-// Initialize the application
-init();
-
-// Service Worker Registration
-if ('serviceWorker' in navigator) {
-    window.addEventListener('load', () => {
-        navigator.serviceWorker.register('service-worker.js')
-            .then(registration => {
-                console.log('ServiceWorker registration successful with scope: ', registration.scope);
-            }, err => {
-                console.log('ServiceWorker registration failed: ', err);
+            crops.push({
+                canvas: croppedCanvas,
+                bbox: {
+                    x: Math.round(x),
+                    y: Math.round(y),
+                    width: Math.round(width),
+                    height: Math.round(height)
+                }
             });
+        }
+
+        // Process crops in smaller batches for mobile
+        const batchSize = isMobile() ? 8 : 32;
+        
+        for (let i = 0; i < crops.length; i += batchSize) {
+            const batch = crops.slice(i, i + batchSize);
+            
+            // Wrap batch processing in tf.tidy
+            await tf.tidy(async () => {
+                const inputTensor = preprocessImageForRecognition(batch.map(crop => crop.canvas));
+                const predictions = await recognitionModel.executeAsync(inputTensor);
+                const probabilities = tf.softmax(predictions, -1);
+                const bestPath = tf.unstack(tf.argMax(probabilities, -1), 0);
+                
+                const words = decodeText(bestPath);
+                
+                words.split(' ').forEach((word, index) => {
+                    if (word && batch[index]) {
+                        extractedData.push({
+                            word: word,
+                            boundingBox: batch[index].bbox
+                        });
+                    }
+                });
+            });
+            
+            // Force garbage collection between batches
+            await tf.nextFrame();
+        }
+
+        return extractedData;
+
+    } catch(error) {
+        console.error('Error in detectAndRecognizeText:', error);
+        throw error;
+    } finally {
+        // Clean up any remaining tensors
+        tf.engine().startScope();
+        tf.engine().endScope();
+        await tf.nextFrame();
+    }
+}
+
+// Modify getHeatMapFromImage to use tf.tidy
+async function getHeatMapFromImage(imageObject) {
+    return tf.tidy(async () => {
+        let tensor = preprocessImageForDetection(imageObject);
+        let prediction = await detectionModel.execute(tensor);
+        prediction = tf.squeeze(prediction, 0);
+        if (Array.isArray(prediction)) {
+            prediction = prediction[0];
+        }
+        
+        const heatmapCanvas = document.createElement('canvas');
+        heatmapCanvas.width = imageObject.width;
+        heatmapCanvas.height = imageObject.height;
+        await tf.browser.toPixels(prediction, heatmapCanvas);
+        
+        return heatmapCanvas;
     });
 }
 
-let deferredPrompt;
-const installBtn = document.getElementById('install-btn');
-
-window.addEventListener('beforeinstallprompt', (e) => {
-    e.preventDefault();
-    deferredPrompt = e;
-    installBtn.style.display = 'block';
-
-    installBtn.addEventListener('click', (e) => {
-        installBtn.style.display = 'none';
-        deferredPrompt.prompt();
-        deferredPrompt.userChoice.then((choiceResult) => {
-            if (choiceResult.outcome === 'accepted') {
-                console.log('User accepted the A2HS prompt');
-            } else {
-                console.log('User dismissed the A2HS prompt');
-            }
-            deferredPrompt = null;
-        });
+// Modify preprocessImageForDetection to use tf.tidy
+function preprocessImageForDetection(imageElement) {
+    return tf.tidy(() => {
+        let tensor = tf.browser
+            .fromPixels(imageElement)
+            .resizeNearestNeighbor(TARGET_SIZE)
+            .toFloat();
+            
+        let mean = tf.scalar(255 * DET_MEAN);
+        let std = tf.scalar(255 * DET_STD);
+        return tensor.sub(mean).div(std).expandDims();
     });
-});
+}
 
-window.addEventListener('appinstalled', (evt) => {
-    console.log('App was installed.');
-    installBtn.style.display = 'none';
-});
+// Modify preprocessImageForRecognition to use tf.tidy
+function preprocessImageForRecognition(crops) {
+    return tf.tidy(() => {
+        const targetSize = [32, 128];
+        const tensors = crops.map((crop) => {
+            let h = crop.height;
+            let w = crop.width;
+            let resizeTarget, paddingTarget;
+            let aspectRatio = targetSize[1] / targetSize[0];
+            
+            if (aspectRatio * h > w) {
+                resizeTarget = [targetSize[0], Math.round((targetSize[0] * w) / h)];
+                paddingTarget = [
+                    [0, 0],
+                    [0, targetSize[1] - Math.round((targetSize[0] * w) / h)],
+                    [0, 0],
+                ];
+            } else {
+                resizeTarget = [Math.round((targetSize[1] * h) / w), targetSize[1]];
+                paddingTarget = [
+                    [0, targetSize[0] - Math.round((targetSize[1] * h) / w)],
+                    [0, 0],
+                    [0, 0],
+                ];
+            }
+            
+            return tf.tidy(() => {
+                return tf.browser
+                    .fromPixels(crop)
+                    .resizeNearestNeighbor(resizeTarget)
+                    .pad(paddingTarget, 0)
+                    .toFloat()
+                    .expandDims();
+            });
+        });
+        
+        const tensor = tf.concat(tensors);
+        let mean = tf.scalar(255 * REC_MEAN);
+        let std = tf.scalar(255 * REC_STD);
+        return tensor.sub(mean).div(std);
+    });
+}
