@@ -495,7 +495,7 @@ function monitorMemoryUsage() {
             unreliable: info.unreliable,
             reasons: info.reasons
         });
-    }, 5000);
+    }, 1000);
 }
 
 async function init() {
@@ -519,6 +519,7 @@ async function init() {
     
     initializeModelLoading();
     await setupCamera();
+    monitorMemoryUsage();
     
     captureButton.disabled = false;
     captureButton.textContent = 'Capture';
