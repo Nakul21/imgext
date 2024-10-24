@@ -263,17 +263,21 @@ async function detectAndRecognizeText(imageElement) {
         // Update loading message
         updateLoadingMessage(currentOperation);
         
-        // Detection phase
-        const heatmapCanvas = await tf.tidy(async () => {
-            const tensor = preprocessImageForDetection(imageElement);
-            const prediction = await detectionModel.execute(tensor);
-            const squeezedPrediction = tf.squeeze(prediction, 0);
-            const canvas = document.createElement('canvas');
-            canvas.width = TARGET_SIZE[0];
-            canvas.height = TARGET_SIZE[1];
-            await tf.browser.toPixels(squeezedPrediction, canvas);
-            return canvas;
-        });
+        // Detection phase - moved out of tf.tidy
+        const tensor = preprocessImageForDetection(imageElement);
+        const prediction = await detectionModel.execute(tensor);
+        const squeezedPrediction = tf.squeeze(prediction, 0);
+        
+        // Create canvas and draw heatmap
+        const heatmapCanvas = document.createElement('canvas');
+        heatmapCanvas.width = TARGET_SIZE[0];
+        heatmapCanvas.height = TARGET_SIZE[1];
+        await tf.browser.toPixels(squeezedPrediction, canvas);
+        
+        // Clean up tensors
+        tensor.dispose();
+        prediction.dispose();
+        squeezedPrediction.dispose();
 
         currentOperation = 'processing';
         updateLoadingMessage(currentOperation);
@@ -298,22 +302,26 @@ async function detectAndRecognizeText(imageElement) {
             // Update progress
             updateProgress(i, crops.length);
             
-            await tf.tidy(async () => {
-                const inputTensor = preprocessImageForRecognition(batch.map(crop => crop.canvas));
-                const predictions = await recognitionModel.executeAsync(inputTensor);
-                const probabilities = tf.softmax(predictions, -1);
-                const bestPath = tf.argMax(probabilities, -1).arraySync();
-                
-                const words = decodeText(bestPath.map(path => tf.tensor1d(path)));
-                words.split(' ').forEach((word, index) => {
-                    if (word && batch[index]) {
-                        results.push({
-                            word: word,
-                            boundingBox: batch[index].bbox
-                        });
-                    }
-                });
+            // Move tensor operations outside of tidy
+            const inputTensor = preprocessImageForRecognition(batch.map(crop => crop.canvas));
+            const predictions = await recognitionModel.executeAsync(inputTensor);
+            const probabilities = tf.softmax(predictions, -1);
+            const bestPath = tf.argMax(probabilities, -1).arraySync();
+            
+            const words = decodeText(bestPath.map(path => tf.tensor1d(path)));
+            words.split(' ').forEach((word, index) => {
+                if (word && batch[index]) {
+                    results.push({
+                        word: word,
+                        boundingBox: batch[index].bbox
+                    });
+                }
             });
+            
+            // Clean up tensors
+            inputTensor.dispose();
+            predictions.dispose();
+            probabilities.dispose();
             
             // Force garbage collection after each batch if available
             if (window.gc) window.gc();
