@@ -116,72 +116,51 @@ async function setupCamera() {
 }
 
 function preprocessImageForDetection(imageElement) {
-    const maxSize = isMobile() ? 512 : 2048; 
-    const originalWidth = imageElement.width;
-    const originalHeight = imageElement.height;
-    let newWidth, newHeight;
-
-    if (originalWidth > originalHeight) {
-        newWidth = Math.min(originalWidth, maxSize);
-        newHeight = (originalHeight / originalWidth) * newWidth;
-    } else {
-        newHeight = Math.min(originalHeight, maxSize);
-        newWidth = (originalWidth / originalHeight) * newHeight;
-    }
-
-    const canvas = document.createElement('canvas');
-    canvas.width = newWidth;
-    canvas.height = newHeight;
-    const ctx = canvas.getContext('2d');
-    ctx.drawImage(imageElement, 0, 0, newWidth, newHeight);
-
-    //const targetSize = [512, 512];
-    let tensor = tf.tidy( () => { 
-        return tf.browser
-        .fromPixels(imageElement)
-        .resizeNearestNeighbor(TARGET_SIZE)
-        .toFloat();
-        });
-    let mean = tf.scalar(255 * DET_MEAN);
-    let std = tf.scalar(255 * DET_STD);
-    return tensor.sub(mean).div(std).expandDims();
+    return tf.tidy(() => {
+        return tf.browser.fromPixels(imageElement)
+            .resizeNearestNeighbor(TARGET_SIZE)
+            .toFloat()
+            .sub(tf.scalar(255 * DET_MEAN))
+            .div(tf.scalar(255 * DET_STD))
+            .expandDims();
+    });
 }
 
 function preprocessImageForRecognition(crops) {
     const targetSize = [32, 128];
-    const tensors = crops.map((crop) => {
-        let h = crop.height;
-        let w = crop.width;
-        let resizeTarget, paddingTarget;
-        let aspectRatio = targetSize[1] / targetSize[0];
-        if (aspectRatio * h > w) {
-            resizeTarget = [targetSize[0], Math.round((targetSize[0] * w) / h)];
-            paddingTarget = [
-                [0, 0],
-                [0, targetSize[1] - Math.round((targetSize[0] * w) / h)],
-                [0, 0],
-            ];
-        } else {
-            resizeTarget = [Math.round((targetSize[1] * h) / w), targetSize[1]];
-            paddingTarget = [
-                [0, targetSize[0] - Math.round((targetSize[1] * h) / w)],
-                [0, 0],
-                [0, 0],
-            ];
-        }
-        return tf.tidy(() => {
-            return tf.browser
-                .fromPixels(crop)
+    return tf.tidy(() => {
+        const processedTensors = crops.map((crop) => {
+            const h = crop.height;
+            const w = crop.width;
+            const aspectRatio = targetSize[1] / targetSize[0];
+            
+            // Precalculate resize dimensions
+            const [resizeTarget, paddingTarget] = tf.tidy(() => {
+                if (aspectRatio * h > w) {
+                    const newWidth = Math.round((targetSize[0] * w) / h);
+                    return [
+                        [targetSize[0], newWidth],
+                        [[0, 0], [0, targetSize[1] - newWidth], [0, 0]]
+                    ];
+                } else {
+                    const newHeight = Math.round((targetSize[1] * h) / w);
+                    return [
+                        [newHeight, targetSize[1]],
+                        [[0, targetSize[0] - newHeight], [0, 0], [0, 0]]
+                    ];
+                }
+            });
+
+            return tf.browser.fromPixels(crop)
                 .resizeNearestNeighbor(resizeTarget)
                 .pad(paddingTarget, 0)
-                .toFloat()
-                .expandDims();
+                .toFloat();
         });
+
+        return tf.stack(processedTensors)
+            .sub(tf.scalar(255 * REC_MEAN))
+            .div(tf.scalar(255 * REC_STD));
     });
-    const tensor = tf.concat(tensors);
-    let mean = tf.scalar(255 * REC_MEAN);
-    let std = tf.scalar(255 * REC_STD);
-    return tensor.sub(mean).div(std);
 }
 
 function decodeText(bestPath) {
@@ -277,50 +256,110 @@ function getRandomColor() {
 }
 
 async function detectAndRecognizeText(imageElement) {
-    
-    if (isMobile()) {
-        useCPU(); // Switch to CPU for mobile devices
-    }
-    //const size = [512, 512];
-    const heatmapCanvas = await getHeatMapFromImage(imageElement);
-    const boundingBoxes = extractBoundingBoxesFromHeatmap(heatmapCanvas, TARGET_SIZE);
-    // console.log('extractBoundingBoxesFromHeatmap', boundingBoxes);
-
-    previewCanvas.width = TARGET_SIZE[0];
-    previewCanvas.height = TARGET_SIZE[1];
-    const ctx = previewCanvas.getContext('2d');
-    ctx.drawImage(imageElement, 0, 0);
-
-    let fullText = '';
-    const crops = [];
+    const results = [];
+    let currentOperation = 'detection';
     
     try {
+        // Update loading message
+        updateLoadingMessage(currentOperation);
+        
+        // Detection phase
+        const heatmapCanvas = await tf.tidy(async () => {
+            const tensor = preprocessImageForDetection(imageElement);
+            const prediction = await detectionModel.execute(tensor);
+            const squeezedPrediction = tf.squeeze(prediction, 0);
+            const canvas = document.createElement('canvas');
+            canvas.width = TARGET_SIZE[0];
+            canvas.height = TARGET_SIZE[1];
+            await tf.browser.toPixels(squeezedPrediction, canvas);
+            return canvas;
+        });
 
+        currentOperation = 'processing';
+        updateLoadingMessage(currentOperation);
+
+        const boundingBoxes = extractBoundingBoxesFromHeatmap(heatmapCanvas, TARGET_SIZE);
+        
+        // Efficient canvas drawing
+        const ctx = previewCanvas.getContext('2d', { alpha: false });
+        ctx.drawImage(imageElement, 0, 0, TARGET_SIZE[0], TARGET_SIZE[1]);
+        
+        // Optimized crop creation
+        const crops = await createCropsEfficiently(boundingBoxes, imageElement);
+        
+        currentOperation = 'recognition';
+        updateLoadingMessage(currentOperation);
+
+        // Process crops in optimized batches
+        const batchSize = isMobile() ? 4 : 16; // Smaller batches for mobile
+        for (let i = 0; i < crops.length; i += batchSize) {
+            const batch = crops.slice(i, i + batchSize);
+            
+            // Update progress
+            updateProgress(i, crops.length);
+            
+            await tf.tidy(async () => {
+                const inputTensor = preprocessImageForRecognition(batch.map(crop => crop.canvas));
+                const predictions = await recognitionModel.executeAsync(inputTensor);
+                const probabilities = tf.softmax(predictions, -1);
+                const bestPath = tf.argMax(probabilities, -1).arraySync();
+                
+                const words = decodeText(bestPath.map(path => tf.tensor1d(path)));
+                words.split(' ').forEach((word, index) => {
+                    if (word && batch[index]) {
+                        results.push({
+                            word: word,
+                            boundingBox: batch[index].bbox
+                        });
+                    }
+                });
+            });
+            
+            // Force garbage collection after each batch if available
+            if (window.gc) window.gc();
+            
+            // Allow UI thread to breathe between batches
+            await new Promise(resolve => setTimeout(resolve, 0));
+        }
+        
+        return results;
+    } finally {
+        tf.disposeVariables();
+    }
+}
+
+async function createCropsEfficiently(boundingBoxes, imageElement) {
+    const crops = [];
+    const offscreenCanvas = document.createElement('canvas');
+    const ctx = offscreenCanvas.getContext('2d', { alpha: false });
+    
     for (const box of boundingBoxes) {
-        // Draw bounding box
         const [x1, y1] = box.coordinates[0];
         const [x2, y2] = box.coordinates[2];
         const width = (x2 - x1) * imageElement.width;
         const height = (y2 - y1) * imageElement.height;
         const x = x1 * imageElement.width;
         const y = y1 * imageElement.height;
-
-        ctx.strokeStyle = box.config.stroke;
-        ctx.lineWidth = 2;
-        ctx.strokeRect(x, y, width, height);
-
-        // Create crop
-        const croppedCanvas = document.createElement('canvas');
-        croppedCanvas.width = Math.min(width, 128)
-        croppedCanvas.height = Math.min(height, 32);
-        croppedCanvas.getContext('2d').drawImage(
-            imageElement, 
+        
+        // Reuse canvas instead of creating new ones
+        offscreenCanvas.width = Math.min(width, 128);
+        offscreenCanvas.height = Math.min(height, 32);
+        
+        ctx.clearRect(0, 0, offscreenCanvas.width, offscreenCanvas.height);
+        ctx.drawImage(
+            imageElement,
             x, y, width, height,
-            0, 0, width, height
+            0, 0, offscreenCanvas.width, offscreenCanvas.height
         );
-
+        
+        // Clone the canvas for storage
+        const cropCanvas = document.createElement('canvas');
+        cropCanvas.width = offscreenCanvas.width;
+        cropCanvas.height = offscreenCanvas.height;
+        cropCanvas.getContext('2d').drawImage(offscreenCanvas, 0, 0);
+        
         crops.push({
-            canvas: croppedCanvas,
+            canvas: cropCanvas,
             bbox: {
                 x: Math.round(x),
                 y: Math.round(y),
@@ -329,42 +368,8 @@ async function detectAndRecognizeText(imageElement) {
             }
         });
     }
-
-    // Process crops in batches
-    const batchSize = isMobile() ? 16 : 32;
-    for (let i = 0; i < crops.length; i += batchSize) {
-        const batch = crops.slice(i, i + batchSize);
-        const inputTensor = preprocessImageForRecognition(batch.map(crop => crop.canvas));
-
-        const predictions = await recognitionModel.executeAsync(inputTensor);
-        const probabilities = tf.softmax(predictions, -1);
-        const bestPath = tf.unstack(tf.argMax(probabilities, -1), 0);
-        
-        const words = decodeText(bestPath);
-
-        // Associate each word with its bounding box
-        words.split(' ').forEach((word, index) => {
-            if (word && batch[index]) {
-                extractedData.push({
-                    word: word,
-                    boundingBox: batch[index].bbox
-                });
-            }
-        });
-
-        tf.dispose([inputTensor, predictions, probabilities, ...bestPath]);
-    }
     
-    return extractedData;
-    
-    } catch(error) {
-        
-        console.error('Error in detectAndRecognizeText:', error);
-        throw error;
-   
-    } finally {
-        tf.disposeVariables(); // Clean up any remaining tensors
-    }
+    return crops;
 }
 
 function disableCaptureButton() {
@@ -380,38 +385,59 @@ function enableCaptureButton() {
 
 async function handleCapture() {
     disableCaptureButton();
-    showLoading('Processing image...');
-
-    await ensureModelsLoaded();  // Ensure models are loaded before processing
-
-    const targetSize = TARGET_SIZE;
-    canvas.width = targetSize[0];
-    canvas.height = targetSize[1];
-    canvas.getContext('2d').drawImage(video, 0, 0, canvas.width, canvas.height);
-
-    imageDataUrl = canvas.toDataURL('image/jpeg', isMobile() ? 0.7 : 0.9);
+    showLoading('Initializing...');
     
-    const img = new Image();
-    img.src = imageDataUrl;
-    img.onload = async () => {
-        try {
-            extractedData = await detectAndRecognizeText(img);
-            extractedText = extractedData.map(item => item.word).join(' ');
+    try {
+        await ensureModelsLoaded();
+        
+        const ctx = canvas.getContext('2d', { alpha: false });
+        canvas.width = TARGET_SIZE[0];
+        canvas.height = TARGET_SIZE[1];
+        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+        
+        // Optimize image quality while maintaining size
+        imageDataUrl = canvas.toDataURL('image/jpeg', 0.8);
+        
+        const img = new Image();
+        img.src = imageDataUrl;
+        
+        await new Promise((resolve, reject) => {
+            img.onload = resolve;
+            img.onerror = reject;
+        });
+        
+        extractedData = await detectAndRecognizeText(img);
+        extractedText = extractedData.map(item => item.word).join(' ');
+        
+        // Batch UI updates
+        requestAnimationFrame(() => {
             resultElement.textContent = `Extracted Text: ${extractedText}`;
-            
             previewCanvas.style.display = 'block';
             confirmButton.style.display = 'inline-block';
             retryButton.style.display = 'inline-block';
             captureButton.style.display = 'none';
-        } catch (error) {
-            console.error('Error during text extraction:', error);
-            resultElement.textContent = 'Error occurred during text extraction';
-        } finally {
-            enableCaptureButton();
-            hideLoading();
-            tf.disposeVariables();
-        }
+        });
+    } catch (error) {
+        console.error('Error during capture:', error);
+        resultElement.textContent = 'Error occurred during processing';
+    } finally {
+        enableCaptureButton();
+        hideLoading();
+    }
+}
+
+function updateLoadingMessage(operation) {
+    const messages = {
+        detection: 'Detecting text regions...',
+        processing: 'Processing detected regions...',
+        recognition: 'Recognizing text...'
     };
+    loadingIndicator.textContent = messages[operation] || 'Processing...';
+}
+
+function updateProgress(current, total) {
+    const progress = Math.round((current / total) * 100);
+    loadingIndicator.textContent = `Recognizing text... ${progress}%`;
 }
 
 function isMobile() {
