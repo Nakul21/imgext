@@ -117,13 +117,13 @@ async function setupCamera() {
 
 function preprocessImageForDetection(imageElement) {
     return tf.tidy(() => {
-        let tensor = tf.browser
+        const tensor = tf.browser
             .fromPixels(imageElement)
             .resizeNearestNeighbor(TARGET_SIZE)
             .toFloat();
             
-        let mean = tf.scalar(255 * DET_MEAN);
-        let std = tf.scalar(255 * DET_STD);
+        const mean = tf.scalar(255 * DET_MEAN);
+        const std = tf.scalar(255 * DET_STD);
         return tensor.sub(mean).div(std).expandDims();
     });
 }
@@ -153,21 +153,55 @@ function preprocessImageForRecognition(crops) {
                 ];
             }
             
-            return tf.tidy(() => {
-                return tf.browser
-                    .fromPixels(crop)
-                    .resizeNearestNeighbor(resizeTarget)
-                    .pad(paddingTarget, 0)
-                    .toFloat()
-                    .expandDims();
-            });
+            return tf.browser
+                .fromPixels(crop)
+                .resizeNearestNeighbor(resizeTarget)
+                .pad(paddingTarget, 0)
+                .toFloat()
+                .expandDims();
         });
         
         const tensor = tf.concat(tensors);
-        let mean = tf.scalar(255 * REC_MEAN);
-        let std = tf.scalar(255 * REC_STD);
+        const mean = tf.scalar(255 * REC_MEAN);
+        const std = tf.scalar(255 * REC_STD);
         return tensor.sub(mean).div(std);
     });
+}
+
+async function processBatch(batch, extractedData) {
+    let inputTensor = null;
+    let predictions = null;
+    let probabilities = null;
+    let bestPath = null;
+    
+    try {
+        // Create input tensor
+        inputTensor = preprocessImageForRecognition(batch.map(crop => crop.canvas));
+        
+        // Run model
+        predictions = await recognitionModel.executeAsync(inputTensor);
+        
+        // Process results
+        probabilities = tf.softmax(predictions, -1);
+        bestPath = tf.unstack(tf.argMax(probabilities, -1), 0);
+        
+        const words = decodeText(bestPath);
+        
+        words.split(' ').forEach((word, index) => {
+            if (word && batch[index]) {
+                extractedData.push({
+                    word: word,
+                    boundingBox: batch[index].bbox
+                });
+            }
+        });
+    } finally {
+        // Clean up tensors
+        if (inputTensor) inputTensor.dispose();
+        if (predictions) predictions.dispose();
+        if (probabilities) probabilities.dispose();
+        if (bestPath) bestPath.forEach(t => t.dispose());
+    }
 }
 
 function decodeText(bestPath) {
@@ -191,9 +225,16 @@ function decodeText(bestPath) {
 }
 
 async function getHeatMapFromImage(imageObject) {
-    return tf.tidy(async () => {
-        let tensor = preprocessImageForDetection(imageObject);
-        let prediction = await detectionModel.execute(tensor);
+    let tensor = null;
+    let prediction = null;
+    try {
+        // Wrap the tensor creation in tidy
+        tensor = tf.tidy(() => {
+            return preprocessImageForDetection(imageObject);
+        });
+        
+        // Execute model outside tidy since it's async
+        prediction = await detectionModel.execute(tensor);
         prediction = tf.squeeze(prediction, 0);
         if (Array.isArray(prediction)) {
             prediction = prediction[0];
@@ -205,7 +246,11 @@ async function getHeatMapFromImage(imageObject) {
         await tf.browser.toPixels(prediction, heatmapCanvas);
         
         return heatmapCanvas;
-    });
+    } finally {
+        // Clean up tensors
+        if (tensor) tensor.dispose();
+        if (prediction) prediction.dispose();
+    }
 }
 
 function clamp(number, size) {
@@ -266,23 +311,22 @@ function getRandomColor() {
 
 async function detectAndRecognizeText(imageElement) {
     if (isMobile()) {
-        useCPU();
+       // useCPU();
     }
 
-    let heatmapCanvas;
-    let boundingBoxes;
+    let heatmapCanvas = null;
     
     try {
-        // Wrap heatmap generation in tf.tidy to auto-dispose tensors
-        heatmapCanvas = await tf.tidy(() => getHeatMapFromImage(imageElement));
-        boundingBoxes = extractBoundingBoxesFromHeatmap(heatmapCanvas, TARGET_SIZE);
+        // Get heatmap
+        heatmapCanvas = await getHeatMapFromImage(imageElement);
+        const boundingBoxes = extractBoundingBoxesFromHeatmap(heatmapCanvas, TARGET_SIZE);
 
+        // Setup preview canvas
         previewCanvas.width = TARGET_SIZE[0];
         previewCanvas.height = TARGET_SIZE[1];
         const ctx = previewCanvas.getContext('2d');
         ctx.drawImage(imageElement, 0, 0);
 
-        let fullText = '';
         const crops = [];
 
         // Generate crops
@@ -318,30 +362,12 @@ async function detectAndRecognizeText(imageElement) {
             });
         }
 
-        // Process crops in smaller batches for mobile
+        // Process crops in smaller batches
         const batchSize = isMobile() ? 8 : 32;
         
         for (let i = 0; i < crops.length; i += batchSize) {
             const batch = crops.slice(i, i + batchSize);
-            
-            // Wrap batch processing in tf.tidy
-            await tf.tidy(async () => {
-                const inputTensor = preprocessImageForRecognition(batch.map(crop => crop.canvas));
-                const predictions = await recognitionModel.executeAsync(inputTensor);
-                const probabilities = tf.softmax(predictions, -1);
-                const bestPath = tf.unstack(tf.argMax(probabilities, -1), 0);
-                
-                const words = decodeText(bestPath);
-                
-                words.split(' ').forEach((word, index) => {
-                    if (word && batch[index]) {
-                        extractedData.push({
-                            word: word,
-                            boundingBox: batch[index].bbox
-                        });
-                    }
-                });
-            });
+            await processBatch(batch, extractedData);
             
             // Force garbage collection between batches
             await tf.nextFrame();
