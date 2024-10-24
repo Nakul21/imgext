@@ -331,7 +331,7 @@ async function detectAndRecognizeText(imageElement) {
         updateLoadingMessage(currentOperation);
 
         // Process crops in optimized batches
-        const batchSize = isMobile() ? 4 : 16; // Smaller batches for mobile
+        const batchSize = isMobile() ? 16 : 16; // Smaller batches for mobile
         for (let i = 0; i < crops.length; i += batchSize) {
             const batch = crops.slice(i, i + batchSize);
             
