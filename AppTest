@@ -1,104 +1,120 @@
-// Add new constants for image processing
-const MOBILE_MAX_DIMENSION = 1024; // Maximum texture dimension for mobile
-const DESKTOP_MAX_DIMENSION = 2048; // Maximum texture dimension for desktop
-const MOBILE_BATCH_SIZE = 4; // Smaller batch size for mobile
-const DESKTOP_BATCH_SIZE = 32; // Regular batch size for desktop
+// Constants for maximum dimensions
+const MAX_TEXTURE_SIZE = 4096;
 
-// Add function to check device capabilities
-function getDeviceCapabilities() {
-    const canvas = document.createElement('canvas');
-    const gl = canvas.getContext('webgl') || canvas.getContext('experimental-webgl');
-    
-    if (!gl) {
-        return {
-            maxTextureSize: MOBILE_MAX_DIMENSION,
-            isMobile: true
-        };
-    }
-
-    const maxTextureSize = gl.getParameter(gl.MAX_TEXTURE_SIZE);
-    const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
-    
-    return {
-        maxTextureSize: Math.min(maxTextureSize, isMobile ? MOBILE_MAX_DIMENSION : DESKTOP_MAX_DIMENSION),
-        isMobile
-    };
-}
-
-// Function to resize image while maintaining aspect ratio
-function calculateResizeDimensions(width, height, maxDimension) {
-    if (width <= maxDimension && height <= maxDimension) {
-        return { width, height };
-    }
-    
-    const aspectRatio = width / height;
-    
-    if (width > height) {
-        return {
-            width: maxDimension,
-            height: Math.round(maxDimension / aspectRatio)
-        };
-    } else {
-        return {
-            width: Math.round(maxDimension * aspectRatio),
-            height: maxDimension
-        };
-    }
-}
-
-// Modified preprocessImageForDetection with size constraints
+// Modified preprocessImageForDetection function
 function preprocessImageForDetection(imageElement) {
-    const deviceCaps = getDeviceCapabilities();
-    
     return tf.tidy(() => {
-        // First resize the image to device-appropriate dimensions
-        const { width, height } = calculateResizeDimensions(
-            imageElement.width,
-            imageElement.height,
-            deviceCaps.maxTextureSize
+        // Calculate scale to fit within texture limits while maintaining aspect ratio
+        const scale = Math.min(
+            MAX_TEXTURE_SIZE / imageElement.width,
+            MAX_TEXTURE_SIZE / imageElement.height,
+            1
         );
+        
+        const scaledWidth = Math.floor(imageElement.width * scale);
+        const scaledHeight = Math.floor(imageElement.height * scale);
         
         // Create a temporary canvas for resizing
         const tempCanvas = document.createElement('canvas');
-        tempCanvas.width = width;
-        tempCanvas.height = height;
+        tempCanvas.width = scaledWidth;
+        tempCanvas.height = scaledHeight;
         const ctx = tempCanvas.getContext('2d');
-        ctx.drawImage(imageElement, 0, 0, width, height);
+        ctx.drawImage(imageElement, 0, 0, scaledWidth, scaledHeight);
         
         // Convert to tensor with controlled dimensions
-        const tensor = tf.browser
-            .fromPixels(tempCanvas)
-            .resizeNearestNeighbor(TARGET_SIZE)
-            .toFloat();
-            
+        let tensor = tf.browser.fromPixels(tempCanvas);
+        
+        // Resize to target size if different from current size
+        if (scaledWidth !== TARGET_SIZE[0] || scaledHeight !== TARGET_SIZE[1]) {
+            tensor = tensor.resizeNearestNeighbor(TARGET_SIZE);
+        }
+        
+        tensor = tensor.toFloat();
         const mean = tf.scalar(255 * DET_MEAN);
         const std = tf.scalar(255 * DET_STD);
         return tensor.sub(mean).div(std).expandDims();
     });
 }
 
-// Modified preprocessImageForRecognition with size constraints
-function preprocessImageForRecognition(crops) {
-    const deviceCaps = getDeviceCapabilities();
+// Modified handleCapture function
+async function handleCapture() {
+    disableCaptureButton();
+    showLoading('Processing image...');
+
+    await ensureModelsLoaded();
+
+    // Get the video dimensions
+    const videoWidth = video.videoWidth;
+    const videoHeight = video.videoHeight;
     
+    // Calculate scale to fit within texture limits
+    const scale = Math.min(
+        MAX_TEXTURE_SIZE / videoWidth,
+        MAX_TEXTURE_SIZE / videoHeight,
+        1
+    );
+    
+    const scaledWidth = Math.floor(videoWidth * scale);
+    const scaledHeight = Math.floor(videoHeight * scale);
+
+    // Set canvas dimensions to scaled size
+    canvas.width = scaledWidth;
+    canvas.height = scaledHeight;
+    canvas.getContext('2d').drawImage(video, 0, 0, scaledWidth, scaledHeight);
+
+    imageDataUrl = canvas.toDataURL('image/jpeg', isMobile() ? 0.7 : 0.9);
+    
+    const img = new Image();
+    img.src = imageDataUrl;
+    img.onload = async () => {
+        try {
+            extractedData = await detectAndRecognizeText(img);
+            extractedText = extractedData.map(item => item.word).join(' ');
+            resultElement.textContent = `Extracted Text: ${extractedText}`;
+            
+            // Set preview canvas dimensions
+            previewCanvas.width = scaledWidth;
+            previewCanvas.height = scaledHeight;
+            previewCanvas.getContext('2d').drawImage(img, 0, 0);
+            
+            previewCanvas.style.display = 'block';
+            confirmButton.style.display = 'inline-block';
+            retryButton.style.display = 'inline-block';
+            captureButton.style.display = 'none';
+        } catch (error) {
+            console.error('Error during text extraction:', error);
+            resultElement.textContent = 'Error occurred during text extraction';
+        } finally {
+            enableCaptureButton();
+            hideLoading();
+            tf.disposeVariables();
+        }
+    };
+}
+
+// Modified preprocessImageForRecognition function
+function preprocessImageForRecognition(crops) {
     return tf.tidy(() => {
         const targetSize = [32, 128];
         const tensors = crops.map((crop) => {
-            // Resize crop if it exceeds device limits
-            const { width: resizedWidth, height: resizedHeight } = calculateResizeDimensions(
-                crop.width,
-                crop.height,
-                deviceCaps.maxTextureSize / 2 // Use half of max texture size for safety
+            // Scale down if crop exceeds texture limits
+            const scale = Math.min(
+                MAX_TEXTURE_SIZE / crop.width,
+                MAX_TEXTURE_SIZE / crop.height,
+                1
             );
             
-            const tempCanvas = document.createElement('canvas');
-            tempCanvas.width = resizedWidth;
-            tempCanvas.height = resizedHeight;
-            const ctx = tempCanvas.getContext('2d');
-            ctx.drawImage(crop, 0, 0, resizedWidth, resizedHeight);
+            const scaledWidth = Math.floor(crop.width * scale);
+            const scaledHeight = Math.floor(crop.height * scale);
             
-            let h = resizedHeight;
-            let w = resizedWidth;
+            const tempCanvas = document.createElement('canvas');
+            tempCanvas.width = scaledWidth;
+            tempCanvas.height = scaledHeight;
+            const ctx = tempCanvas.getContext('2d');
+            ctx.drawImage(crop, 0, 0, scaledWidth, scaledHeight);
+            
+            let h = scaledHeight;
+            let w = scaledWidth;
             let resizeTarget, paddingTarget;
             let aspectRatio = targetSize[1] / targetSize[0];
             
@@ -131,109 +147,4 @@ function preprocessImageForRecognition(crops) {
         const std = tf.scalar(255 * REC_STD);
         return tensor.sub(mean).div(std);
     });
-}
-
-// Modified processBatch function with dynamic batch sizing
-async function processBatch(batch, extractedData) {
-    const deviceCaps = getDeviceCapabilities();
-    const batchSize = deviceCaps.isMobile ? MOBILE_BATCH_SIZE : DESKTOP_BATCH_SIZE;
-    
-    // Process in smaller sub-batches if needed
-    for (let i = 0; i < batch.length; i += batchSize) {
-        const subBatch = batch.slice(i, i + batchSize);
-        let inputTensor = null;
-        let predictions = null;
-        let probabilities = null;
-        let bestPath = null;
-        
-        try {
-            inputTensor = preprocessImageForRecognition(subBatch.map(crop => crop.canvas));
-            predictions = await recognitionModel.executeAsync(inputTensor);
-            probabilities = tf.softmax(predictions, -1);
-            bestPath = tf.unstack(tf.argMax(probabilities, -1), 0);
-            
-            const words = decodeText(bestPath);
-            
-            words.split(' ').forEach((word, index) => {
-                if (word && subBatch[index]) {
-                    extractedData.push({
-                        word: word,
-                        boundingBox: subBatch[index].bbox
-                    });
-                }
-            });
-            
-            // Force garbage collection after each sub-batch
-            await tf.nextFrame();
-            
-        } finally {
-            // Clean up tensors
-            if (inputTensor) inputTensor.dispose();
-            if (predictions) predictions.dispose();
-            if (probabilities) probabilities.dispose();
-            if (bestPath) bestPath.forEach(t => t.dispose());
-        }
-    }
-}
-
-// Modified detectAndRecognizeText with additional optimizations
-async function detectAndRecognizeText(imageElement) {
-    const deviceCaps = getDeviceCapabilities();
-    
-    if (deviceCaps.isMobile) {
-        useCPU();
-    }
-    
-    let heatmapCanvas = null;
-    
-    try {
-        // Resize input image if needed
-        const { width, height } = calculateResizeDimensions(
-            imageElement.width,
-            imageElement.height,
-            deviceCaps.maxTextureSize
-        );
-        
-        const tempCanvas = document.createElement('canvas');
-        tempCanvas.width = width;
-        tempCanvas.height = height;
-        const ctx = tempCanvas.getContext('2d');
-        ctx.drawImage(imageElement, 0, 0, width, height);
-        
-        // Process resized image
-        heatmapCanvas = await getHeatMapFromImage(tempCanvas);
-        const boundingBoxes = extractBoundingBoxesFromHeatmap(heatmapCanvas, TARGET_SIZE);
-        
-        // Setup preview canvas
-        previewCanvas.width = width;
-        previewCanvas.height = height;
-        previewCanvas.getContext('2d').drawImage(tempCanvas, 0, 0);
-        
-...
-        
-        // Process in smaller batches for mobile
-        const batchSize = deviceCaps.isMobile ? MOBILE_BATCH_SIZE : DESKTOP_BATCH_SIZE;
-        
-        for (let i = 0; i < crops.length; i += batchSize) {
-            const batch = crops.slice(i, i + batchSize);
-            await processBatch(batch, extractedData);
-            
-            // Force garbage collection between batches
-            if (deviceCaps.isMobile) {
-                await new Promise(resolve => setTimeout(resolve, 100)); // Add small delay on mobile
-            }
-            await tf.nextFrame();
-        }
-        
-        return extractedData;
-        
-    } catch(error) {
-        console.error('Error in detectAndRecognizeText:', error);
-        throw error;
-    } finally {
-        // Clean up any remaining tensors
-        tf.engine().startScope();
-        tf.engine().endScope();
-        await tf.nextFrame();
-    }
 }
