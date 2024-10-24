@@ -116,72 +116,58 @@ async function setupCamera() {
 }
 
 function preprocessImageForDetection(imageElement) {
-    const maxSize = isMobile() ? 512 : 2048; 
-    const originalWidth = imageElement.width;
-    const originalHeight = imageElement.height;
-    let newWidth, newHeight;
-
-    if (originalWidth > originalHeight) {
-        newWidth = Math.min(originalWidth, maxSize);
-        newHeight = (originalHeight / originalWidth) * newWidth;
-    } else {
-        newHeight = Math.min(originalHeight, maxSize);
-        newWidth = (originalWidth / originalHeight) * newHeight;
-    }
-
-    const canvas = document.createElement('canvas');
-    canvas.width = newWidth;
-    canvas.height = newHeight;
-    const ctx = canvas.getContext('2d');
-    ctx.drawImage(imageElement, 0, 0, newWidth, newHeight);
-
-    //const targetSize = [512, 512];
-    let tensor = tf.tidy( () => { 
-        return tf.browser
-        .fromPixels(imageElement)
-        .resizeNearestNeighbor(TARGET_SIZE)
-        .toFloat();
-        });
-    let mean = tf.scalar(255 * DET_MEAN);
-    let std = tf.scalar(255 * DET_STD);
-    return tensor.sub(mean).div(std).expandDims();
+    return tf.tidy(() => {
+        let tensor = tf.browser
+            .fromPixels(imageElement)
+            .resizeNearestNeighbor(TARGET_SIZE)
+            .toFloat();
+            
+        let mean = tf.scalar(255 * DET_MEAN);
+        let std = tf.scalar(255 * DET_STD);
+        return tensor.sub(mean).div(std).expandDims();
+    });
 }
 
 function preprocessImageForRecognition(crops) {
-    const targetSize = [32, 128];
-    const tensors = crops.map((crop) => {
-        let h = crop.height;
-        let w = crop.width;
-        let resizeTarget, paddingTarget;
-        let aspectRatio = targetSize[1] / targetSize[0];
-        if (aspectRatio * h > w) {
-            resizeTarget = [targetSize[0], Math.round((targetSize[0] * w) / h)];
-            paddingTarget = [
-                [0, 0],
-                [0, targetSize[1] - Math.round((targetSize[0] * w) / h)],
-                [0, 0],
-            ];
-        } else {
-            resizeTarget = [Math.round((targetSize[1] * h) / w), targetSize[1]];
-            paddingTarget = [
-                [0, targetSize[0] - Math.round((targetSize[1] * h) / w)],
-                [0, 0],
-                [0, 0],
-            ];
-        }
-        return tf.tidy(() => {
-            return tf.browser
-                .fromPixels(crop)
-                .resizeNearestNeighbor(resizeTarget)
-                .pad(paddingTarget, 0)
-                .toFloat()
-                .expandDims();
+    return tf.tidy(() => {
+        const targetSize = [32, 128];
+        const tensors = crops.map((crop) => {
+            let h = crop.height;
+            let w = crop.width;
+            let resizeTarget, paddingTarget;
+            let aspectRatio = targetSize[1] / targetSize[0];
+            
+            if (aspectRatio * h > w) {
+                resizeTarget = [targetSize[0], Math.round((targetSize[0] * w) / h)];
+                paddingTarget = [
+                    [0, 0],
+                    [0, targetSize[1] - Math.round((targetSize[0] * w) / h)],
+                    [0, 0],
+                ];
+            } else {
+                resizeTarget = [Math.round((targetSize[1] * h) / w), targetSize[1]];
+                paddingTarget = [
+                    [0, targetSize[0] - Math.round((targetSize[1] * h) / w)],
+                    [0, 0],
+                    [0, 0],
+                ];
+            }
+            
+            return tf.tidy(() => {
+                return tf.browser
+                    .fromPixels(crop)
+                    .resizeNearestNeighbor(resizeTarget)
+                    .pad(paddingTarget, 0)
+                    .toFloat()
+                    .expandDims();
+            });
         });
+        
+        const tensor = tf.concat(tensors);
+        let mean = tf.scalar(255 * REC_MEAN);
+        let std = tf.scalar(255 * REC_STD);
+        return tensor.sub(mean).div(std);
     });
-    const tensor = tf.concat(tensors);
-    let mean = tf.scalar(255 * REC_MEAN);
-    let std = tf.scalar(255 * REC_STD);
-    return tensor.sub(mean).div(std);
 }
 
 function decodeText(bestPath) {
@@ -205,19 +191,21 @@ function decodeText(bestPath) {
 }
 
 async function getHeatMapFromImage(imageObject) {
-    let tensor = preprocessImageForDetection(imageObject);
-    let prediction = await detectionModel.execute(tensor);
-    prediction = tf.squeeze(prediction, 0);
-    if (Array.isArray(prediction)) {
-        prediction = prediction[0];
-    }
-    const heatmapCanvas = document.createElement('canvas');
-    heatmapCanvas.width = imageObject.width;
-    heatmapCanvas.height = imageObject.height;
-    await tf.browser.toPixels(prediction, heatmapCanvas);
-    tensor.dispose();
-    prediction.dispose();
-    return heatmapCanvas;
+    return tf.tidy(async () => {
+        let tensor = preprocessImageForDetection(imageObject);
+        let prediction = await detectionModel.execute(tensor);
+        prediction = tf.squeeze(prediction, 0);
+        if (Array.isArray(prediction)) {
+            prediction = prediction[0];
+        }
+        
+        const heatmapCanvas = document.createElement('canvas');
+        heatmapCanvas.width = imageObject.width;
+        heatmapCanvas.height = imageObject.height;
+        await tf.browser.toPixels(prediction, heatmapCanvas);
+        
+        return heatmapCanvas;
+    });
 }
 
 function clamp(number, size) {
@@ -277,93 +265,98 @@ function getRandomColor() {
 }
 
 async function detectAndRecognizeText(imageElement) {
-    
     if (isMobile()) {
-        useCPU(); // Switch to CPU for mobile devices
+        useCPU();
     }
-    //const size = [512, 512];
-    const heatmapCanvas = await getHeatMapFromImage(imageElement);
-    const boundingBoxes = extractBoundingBoxesFromHeatmap(heatmapCanvas, TARGET_SIZE);
-    // console.log('extractBoundingBoxesFromHeatmap', boundingBoxes);
 
-    previewCanvas.width = TARGET_SIZE[0];
-    previewCanvas.height = TARGET_SIZE[1];
-    const ctx = previewCanvas.getContext('2d');
-    ctx.drawImage(imageElement, 0, 0);
-
-    let fullText = '';
-    const crops = [];
+    let heatmapCanvas;
+    let boundingBoxes;
     
     try {
+        // Wrap heatmap generation in tf.tidy to auto-dispose tensors
+        heatmapCanvas = await tf.tidy(() => getHeatMapFromImage(imageElement));
+        boundingBoxes = extractBoundingBoxesFromHeatmap(heatmapCanvas, TARGET_SIZE);
 
-    for (const box of boundingBoxes) {
-        // Draw bounding box
-        const [x1, y1] = box.coordinates[0];
-        const [x2, y2] = box.coordinates[2];
-        const width = (x2 - x1) * imageElement.width;
-        const height = (y2 - y1) * imageElement.height;
-        const x = x1 * imageElement.width;
-        const y = y1 * imageElement.height;
+        previewCanvas.width = TARGET_SIZE[0];
+        previewCanvas.height = TARGET_SIZE[1];
+        const ctx = previewCanvas.getContext('2d');
+        ctx.drawImage(imageElement, 0, 0);
 
-        ctx.strokeStyle = box.config.stroke;
-        ctx.lineWidth = 2;
-        ctx.strokeRect(x, y, width, height);
+        let fullText = '';
+        const crops = [];
 
-        // Create crop
-        const croppedCanvas = document.createElement('canvas');
-        croppedCanvas.width = Math.min(width, 128)
-        croppedCanvas.height = Math.min(height, 32);
-        croppedCanvas.getContext('2d').drawImage(
-            imageElement, 
-            x, y, width, height,
-            0, 0, width, height
-        );
+        // Generate crops
+        for (const box of boundingBoxes) {
+            const [x1, y1] = box.coordinates[0];
+            const [x2, y2] = box.coordinates[2];
+            const width = (x2 - x1) * imageElement.width;
+            const height = (y2 - y1) * imageElement.height;
+            const x = x1 * imageElement.width;
+            const y = y1 * imageElement.height;
 
-        crops.push({
-            canvas: croppedCanvas,
-            bbox: {
-                x: Math.round(x),
-                y: Math.round(y),
-                width: Math.round(width),
-                height: Math.round(height)
-            }
-        });
-    }
+            ctx.strokeStyle = box.config.stroke;
+            ctx.lineWidth = 2;
+            ctx.strokeRect(x, y, width, height);
 
-    // Process crops in batches
-    const batchSize = isMobile() ? 32 : 32;
-    for (let i = 0; i < crops.length; i += batchSize) {
-        const batch = crops.slice(i, i + batchSize);
-        const inputTensor = preprocessImageForRecognition(batch.map(crop => crop.canvas));
+            const croppedCanvas = document.createElement('canvas');
+            croppedCanvas.width = Math.min(width, 128);
+            croppedCanvas.height = Math.min(height, 32);
+            croppedCanvas.getContext('2d').drawImage(
+                imageElement, 
+                x, y, width, height,
+                0, 0, width, height
+            );
 
-        const predictions = await recognitionModel.executeAsync(inputTensor);
-        const probabilities = tf.softmax(predictions, -1);
-        const bestPath = tf.unstack(tf.argMax(probabilities, -1), 0);
+            crops.push({
+                canvas: croppedCanvas,
+                bbox: {
+                    x: Math.round(x),
+                    y: Math.round(y),
+                    width: Math.round(width),
+                    height: Math.round(height)
+                }
+            });
+        }
+
+        // Process crops in smaller batches for mobile
+        const batchSize = isMobile() ? 8 : 32;
         
-        const words = decodeText(bestPath);
-
-        // Associate each word with its bounding box
-        words.split(' ').forEach((word, index) => {
-            if (word && batch[index]) {
-                extractedData.push({
-                    word: word,
-                    boundingBox: batch[index].bbox
+        for (let i = 0; i < crops.length; i += batchSize) {
+            const batch = crops.slice(i, i + batchSize);
+            
+            // Wrap batch processing in tf.tidy
+            await tf.tidy(async () => {
+                const inputTensor = preprocessImageForRecognition(batch.map(crop => crop.canvas));
+                const predictions = await recognitionModel.executeAsync(inputTensor);
+                const probabilities = tf.softmax(predictions, -1);
+                const bestPath = tf.unstack(tf.argMax(probabilities, -1), 0);
+                
+                const words = decodeText(bestPath);
+                
+                words.split(' ').forEach((word, index) => {
+                    if (word && batch[index]) {
+                        extractedData.push({
+                            word: word,
+                            boundingBox: batch[index].bbox
+                        });
+                    }
                 });
-            }
-        });
+            });
+            
+            // Force garbage collection between batches
+            await tf.nextFrame();
+        }
 
-        tf.dispose([inputTensor, predictions, probabilities, ...bestPath]);
-    }
-    
-    return extractedData;
-    
+        return extractedData;
+
     } catch(error) {
-        
         console.error('Error in detectAndRecognizeText:', error);
         throw error;
-   
     } finally {
-        tf.disposeVariables(); // Clean up any remaining tensors
+        // Clean up any remaining tensors
+        tf.engine().startScope();
+        tf.engine().endScope();
+        await tf.nextFrame();
     }
 }
 
@@ -497,7 +490,7 @@ function monitorMemoryUsage() {
             unreliable: info.unreliable,
             reasons: info.reasons
         });
-    }, 1000);
+    }, 3000);
 }
 
 async function init() {
