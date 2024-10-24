@@ -1,63 +1,3 @@
-// Constants with original target size
-const REC_MEAN = 0.694;
-const REC_STD = 0.298;
-const DET_MEAN = 0.785;
-const DET_STD = 0.275;
-const VOCAB = "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ!\"#$%&'()*+,-./:;<=>?@[\\]^_`{|}~°£€¥¢฿àâéèêëîïôùûüçÀÂÉÈÊËÎÏÔÙÛÜÇ";
-const TARGET_SIZE = [512, 512]; // Maintaining original size
-
-// Optimized preprocessing with better memory management
-function preprocessImageForDetection(imageElement) {
-    return tf.tidy(() => {
-        // Chain operations to reduce memory footprint
-        return tf.browser.fromPixels(imageElement)
-            .resizeNearestNeighbor(TARGET_SIZE)
-            .toFloat()
-            .sub(tf.scalar(255 * DET_MEAN))
-            .div(tf.scalar(255 * DET_STD))
-            .expandDims();
-    });
-}
-
-// Optimized recognition preprocessing with better batch handling
-function preprocessImageForRecognition(crops) {
-    const targetSize = [32, 128];
-    return tf.tidy(() => {
-        const processedTensors = crops.map((crop) => {
-            const h = crop.height;
-            const w = crop.width;
-            const aspectRatio = targetSize[1] / targetSize[0];
-            
-            // Precalculate resize dimensions
-            const [resizeTarget, paddingTarget] = tf.tidy(() => {
-                if (aspectRatio * h > w) {
-                    const newWidth = Math.round((targetSize[0] * w) / h);
-                    return [
-                        [targetSize[0], newWidth],
-                        [[0, 0], [0, targetSize[1] - newWidth], [0, 0]]
-                    ];
-                } else {
-                    const newHeight = Math.round((targetSize[1] * h) / w);
-                    return [
-                        [newHeight, targetSize[1]],
-                        [[0, targetSize[0] - newHeight], [0, 0], [0, 0]]
-                    ];
-                }
-            });
-
-            return tf.browser.fromPixels(crop)
-                .resizeNearestNeighbor(resizeTarget)
-                .pad(paddingTarget, 0)
-                .toFloat();
-        });
-
-        return tf.stack(processedTensors)
-            .sub(tf.scalar(255 * REC_MEAN))
-            .div(tf.scalar(255 * REC_STD));
-    });
-}
-
-// Optimized text extraction with progressive processing
 async function detectAndRecognizeText(imageElement) {
     const results = [];
     let currentOperation = 'detection';
@@ -66,17 +6,21 @@ async function detectAndRecognizeText(imageElement) {
         // Update loading message
         updateLoadingMessage(currentOperation);
         
-        // Detection phase
-        const heatmapCanvas = await tf.tidy(async () => {
-            const tensor = preprocessImageForDetection(imageElement);
-            const prediction = await detectionModel.execute(tensor);
-            const squeezedPrediction = tf.squeeze(prediction, 0);
-            const canvas = document.createElement('canvas');
-            canvas.width = TARGET_SIZE[0];
-            canvas.height = TARGET_SIZE[1];
-            await tf.browser.toPixels(squeezedPrediction, canvas);
-            return canvas;
-        });
+        // Detection phase - moved out of tf.tidy
+        const tensor = preprocessImageForDetection(imageElement);
+        const prediction = await detectionModel.execute(tensor);
+        const squeezedPrediction = tf.squeeze(prediction, 0);
+        
+        // Create canvas and draw heatmap
+        const heatmapCanvas = document.createElement('canvas');
+        heatmapCanvas.width = TARGET_SIZE[0];
+        heatmapCanvas.height = TARGET_SIZE[1];
+        await tf.browser.toPixels(squeezedPrediction, canvas);
+        
+        // Clean up tensors
+        tensor.dispose();
+        prediction.dispose();
+        squeezedPrediction.dispose();
 
         currentOperation = 'processing';
         updateLoadingMessage(currentOperation);
@@ -101,22 +45,26 @@ async function detectAndRecognizeText(imageElement) {
             // Update progress
             updateProgress(i, crops.length);
             
-            await tf.tidy(async () => {
-                const inputTensor = preprocessImageForRecognition(batch.map(crop => crop.canvas));
-                const predictions = await recognitionModel.executeAsync(inputTensor);
-                const probabilities = tf.softmax(predictions, -1);
-                const bestPath = tf.argMax(probabilities, -1).arraySync();
-                
-                const words = decodeText(bestPath.map(path => tf.tensor1d(path)));
-                words.split(' ').forEach((word, index) => {
-                    if (word && batch[index]) {
-                        results.push({
-                            word: word,
-                            boundingBox: batch[index].bbox
-                        });
-                    }
-                });
+            // Move tensor operations outside of tidy
+            const inputTensor = preprocessImageForRecognition(batch.map(crop => crop.canvas));
+            const predictions = await recognitionModel.executeAsync(inputTensor);
+            const probabilities = tf.softmax(predictions, -1);
+            const bestPath = tf.argMax(probabilities, -1).arraySync();
+            
+            const words = decodeText(bestPath.map(path => tf.tensor1d(path)));
+            words.split(' ').forEach((word, index) => {
+                if (word && batch[index]) {
+                    results.push({
+                        word: word,
+                        boundingBox: batch[index].bbox
+                    });
+                }
             });
+            
+            // Clean up tensors
+            inputTensor.dispose();
+            predictions.dispose();
+            probabilities.dispose();
             
             // Force garbage collection after each batch if available
             if (window.gc) window.gc();
@@ -129,108 +77,4 @@ async function detectAndRecognizeText(imageElement) {
     } finally {
         tf.disposeVariables();
     }
-}
-
-// Efficient crop creation with memory optimization
-async function createCropsEfficiently(boundingBoxes, imageElement) {
-    const crops = [];
-    const offscreenCanvas = document.createElement('canvas');
-    const ctx = offscreenCanvas.getContext('2d', { alpha: false });
-    
-    for (const box of boundingBoxes) {
-        const [x1, y1] = box.coordinates[0];
-        const [x2, y2] = box.coordinates[2];
-        const width = (x2 - x1) * imageElement.width;
-        const height = (y2 - y1) * imageElement.height;
-        const x = x1 * imageElement.width;
-        const y = y1 * imageElement.height;
-        
-        // Reuse canvas instead of creating new ones
-        offscreenCanvas.width = Math.min(width, 128);
-        offscreenCanvas.height = Math.min(height, 32);
-        
-        ctx.clearRect(0, 0, offscreenCanvas.width, offscreenCanvas.height);
-        ctx.drawImage(
-            imageElement,
-            x, y, width, height,
-            0, 0, offscreenCanvas.width, offscreenCanvas.height
-        );
-        
-        // Clone the canvas for storage
-        const cropCanvas = document.createElement('canvas');
-        cropCanvas.width = offscreenCanvas.width;
-        cropCanvas.height = offscreenCanvas.height;
-        cropCanvas.getContext('2d').drawImage(offscreenCanvas, 0, 0);
-        
-        crops.push({
-            canvas: cropCanvas,
-            bbox: {
-                x: Math.round(x),
-                y: Math.round(y),
-                width: Math.round(width),
-                height: Math.round(height)
-            }
-        });
-    }
-    
-    return crops;
-}
-
-// Optimized capture handling with progress feedback
-async function handleCapture() {
-    disableCaptureButton();
-    showLoading('Initializing...');
-    
-    try {
-        await ensureModelsLoaded();
-        
-        const ctx = canvas.getContext('2d', { alpha: false });
-        canvas.width = TARGET_SIZE[0];
-        canvas.height = TARGET_SIZE[1];
-        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-        
-        // Optimize image quality while maintaining size
-        imageDataUrl = canvas.toDataURL('image/jpeg', 0.8);
-        
-        const img = new Image();
-        img.src = imageDataUrl;
-        
-        await new Promise((resolve, reject) => {
-            img.onload = resolve;
-            img.onerror = reject;
-        });
-        
-        extractedData = await detectAndRecognizeText(img);
-        extractedText = extractedData.map(item => item.word).join(' ');
-        
-        // Batch UI updates
-        requestAnimationFrame(() => {
-            resultElement.textContent = `Extracted Text: ${extractedText}`;
-            previewCanvas.style.display = 'block';
-            confirmButton.style.display = 'inline-block';
-            retryButton.style.display = 'inline-block';
-            captureButton.style.display = 'none';
-        });
-    } catch (error) {
-        console.error('Error during capture:', error);
-        resultElement.textContent = 'Error occurred during processing';
-    } finally {
-        enableCaptureButton();
-        hideLoading();
-    }
-}
-
-// Helper functions for progress feedback
-function updateLoadingMessage(operation) {
-    const messages = {
-        detection: 'Detecting text regions...',
-        processing: 'Processing detected regions...',
-        recognition: 'Recognizing text...'
-    };
-    loadingIndicator.textContent = messages[operation] || 'Processing...';
-}
-
-function updateProgress(current, total) {
-    const progress = Math.round((current / total) * 100);
-    loadingIndicator.textContent = `Recognizing text... ${progress}%`;
 }
