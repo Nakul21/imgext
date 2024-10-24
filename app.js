@@ -258,6 +258,11 @@ function getRandomColor() {
 async function detectAndRecognizeText(imageElement) {
     const results = [];
     let currentOperation = 'detection';
+   
+    if( isMobile() ) {
+        useCPU();
+    }
+    
     
     try {
         // Update loading message
