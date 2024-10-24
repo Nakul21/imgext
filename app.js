@@ -424,8 +424,41 @@ async function detectAndRecognizeText(imageElement) {
         previewCanvas.height = height;
         previewCanvas.getContext('2d').drawImage(tempCanvas, 0, 0);
         
-        // Rest of the processing...
-        // [Previous crop generation code remains the same]
+        const crops = [];
+
+        // Generate crops
+        for (const box of boundingBoxes) {
+            const [x1, y1] = box.coordinates[0];
+            const [x2, y2] = box.coordinates[2];
+            const width = (x2 - x1) * imageElement.width;
+            const height = (y2 - y1) * imageElement.height;
+            const x = x1 * imageElement.width;
+            const y = y1 * imageElement.height;
+
+            ctx.strokeStyle = box.config.stroke;
+            ctx.lineWidth = 2;
+            ctx.strokeRect(x, y, width, height);
+
+            const croppedCanvas = document.createElement('canvas');
+            croppedCanvas.width = Math.min(width, 128);
+            croppedCanvas.height = Math.min(height, 32);
+            croppedCanvas.getContext('2d').drawImage(
+                imageElement, 
+                x, y, width, height,
+                0, 0, width, height
+            );
+
+            crops.push({
+                canvas: croppedCanvas,
+                bbox: {
+                    x: Math.round(x),
+                    y: Math.round(y),
+                    width: Math.round(width),
+                    height: Math.round(height)
+                }
+            });
+        }
+
         
         // Process in smaller batches for mobile
         const batchSize = deviceCaps.isMobile ? MOBILE_BATCH_SIZE : DESKTOP_BATCH_SIZE;
