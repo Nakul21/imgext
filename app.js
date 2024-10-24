@@ -23,6 +23,7 @@ const MOBILE_MAX_DIMENSION = 1024; // Maximum texture dimension for mobile
 const DESKTOP_MAX_DIMENSION = 2048; // Maximum texture dimension for desktop
 const MOBILE_BATCH_SIZE = 4; // Smaller batch size for mobile
 const DESKTOP_BATCH_SIZE = 32; // Regular batch size for desktop
+const MAX_TEXTURE_SIZE = 4096;
 
 let modelLoadingPromise;
 
@@ -160,29 +161,33 @@ async function setupCamera() {
 }
 
 function preprocessImageForDetection(imageElement) {
-    const deviceCaps = getDeviceCapabilities();
-    
     return tf.tidy(() => {
-        // First resize the image to device-appropriate dimensions
-        const { width, height } = calculateResizeDimensions(
-            imageElement.width,
-            imageElement.height,
-            deviceCaps.maxTextureSize
+        // Calculate scale to fit within texture limits while maintaining aspect ratio
+        const scale = Math.min(
+            MAX_TEXTURE_SIZE / imageElement.width,
+            MAX_TEXTURE_SIZE / imageElement.height,
+            1
         );
+        
+        const scaledWidth = Math.floor(imageElement.width * scale);
+        const scaledHeight = Math.floor(imageElement.height * scale);
         
         // Create a temporary canvas for resizing
         const tempCanvas = document.createElement('canvas');
-        tempCanvas.width = width;
-        tempCanvas.height = height;
+        tempCanvas.width = scaledWidth;
+        tempCanvas.height = scaledHeight;
         const ctx = tempCanvas.getContext('2d');
-        ctx.drawImage(imageElement, 0, 0, width, height);
+        ctx.drawImage(imageElement, 0, 0, scaledWidth, scaledHeight);
         
         // Convert to tensor with controlled dimensions
-        const tensor = tf.browser
-            .fromPixels(tempCanvas)
-            .resizeNearestNeighbor(TARGET_SIZE)
-            .toFloat();
-            
+        let tensor = tf.browser.fromPixels(tempCanvas);
+        
+        // Resize to target size if different from current size
+        if (scaledWidth !== TARGET_SIZE[0] || scaledHeight !== TARGET_SIZE[1]) {
+            tensor = tensor.resizeNearestNeighbor(TARGET_SIZE);
+        }
+        
+        tensor = tensor.toFloat();
         const mean = tf.scalar(255 * DET_MEAN);
         const std = tf.scalar(255 * DET_STD);
         return tensor.sub(mean).div(std).expandDims();
@@ -190,26 +195,27 @@ function preprocessImageForDetection(imageElement) {
 }
 
 function preprocessImageForRecognition(crops) {
-    const deviceCaps = getDeviceCapabilities();
-    
     return tf.tidy(() => {
         const targetSize = [32, 128];
         const tensors = crops.map((crop) => {
-            // Resize crop if it exceeds device limits
-            const { width: resizedWidth, height: resizedHeight } = calculateResizeDimensions(
-                crop.width,
-                crop.height,
-                deviceCaps.maxTextureSize / 2 // Use half of max texture size for safety
+            // Scale down if crop exceeds texture limits
+            const scale = Math.min(
+                MAX_TEXTURE_SIZE / crop.width,
+                MAX_TEXTURE_SIZE / crop.height,
+                1
             );
             
-            const tempCanvas = document.createElement('canvas');
-            tempCanvas.width = resizedWidth;
-            tempCanvas.height = resizedHeight;
-            const ctx = tempCanvas.getContext('2d');
-            ctx.drawImage(crop, 0, 0, resizedWidth, resizedHeight);
+            const scaledWidth = Math.floor(crop.width * scale);
+            const scaledHeight = Math.floor(crop.height * scale);
             
-            let h = resizedHeight;
-            let w = resizedWidth;
+            const tempCanvas = document.createElement('canvas');
+            tempCanvas.width = scaledWidth;
+            tempCanvas.height = scaledHeight;
+            const ctx = tempCanvas.getContext('2d');
+            ctx.drawImage(crop, 0, 0, scaledWidth, scaledHeight);
+            
+            let h = scaledHeight;
+            let w = scaledWidth;
             let resizeTarget, paddingTarget;
             let aspectRatio = targetSize[1] / targetSize[0];
             
@@ -502,12 +508,26 @@ async function handleCapture() {
     disableCaptureButton();
     showLoading('Processing image...');
 
-    await ensureModelsLoaded();  // Ensure models are loaded before processing
+    await ensureModelsLoaded();
 
-    const targetSize = TARGET_SIZE;
-    canvas.width = targetSize[0];
-    canvas.height = targetSize[1];
-    canvas.getContext('2d').drawImage(video, 0, 0, canvas.width, canvas.height);
+    // Get the video dimensions
+    const videoWidth = video.videoWidth;
+    const videoHeight = video.videoHeight;
+    
+    // Calculate scale to fit within texture limits
+    const scale = Math.min(
+        MAX_TEXTURE_SIZE / videoWidth,
+        MAX_TEXTURE_SIZE / videoHeight,
+        1
+    );
+    
+    const scaledWidth = Math.floor(videoWidth * scale);
+    const scaledHeight = Math.floor(videoHeight * scale);
+
+    // Set canvas dimensions to scaled size
+    canvas.width = scaledWidth;
+    canvas.height = scaledHeight;
+    canvas.getContext('2d').drawImage(video, 0, 0, scaledWidth, scaledHeight);
 
     imageDataUrl = canvas.toDataURL('image/jpeg', isMobile() ? 0.7 : 0.9);
     
@@ -518,6 +538,11 @@ async function handleCapture() {
             extractedData = await detectAndRecognizeText(img);
             extractedText = extractedData.map(item => item.word).join(' ');
             resultElement.textContent = `Extracted Text: ${extractedText}`;
+            
+            // Set preview canvas dimensions
+            previewCanvas.width = scaledWidth;
+            previewCanvas.height = scaledHeight;
+            previewCanvas.getContext('2d').drawImage(img, 0, 0);
             
             previewCanvas.style.display = 'block';
             confirmButton.style.display = 'inline-block';
