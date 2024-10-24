@@ -6,7 +6,15 @@ async function detectAndRecognizeText(imageElement) {
         // Update loading message
         updateLoadingMessage(currentOperation);
         
-        // Detection phase - moved out of tf.tidy
+        // Ensure image is loaded
+        if (!imageElement.complete) {
+            await new Promise(resolve => {
+                imageElement.onload = resolve;
+            });
+        }
+
+        // Detection phase
+        console.log('Starting detection...');
         const tensor = preprocessImageForDetection(imageElement);
         const prediction = await detectionModel.execute(tensor);
         const squeezedPrediction = tf.squeeze(prediction, 0);
@@ -15,7 +23,7 @@ async function detectAndRecognizeText(imageElement) {
         const heatmapCanvas = document.createElement('canvas');
         heatmapCanvas.width = TARGET_SIZE[0];
         heatmapCanvas.height = TARGET_SIZE[1];
-        await tf.browser.toPixels(squeezedPrediction, canvas);
+        await tf.browser.toPixels(squeezedPrediction, heatmapCanvas); // Fixed: Draw to heatmapCanvas
         
         // Clean up tensors
         tensor.dispose();
@@ -24,15 +32,38 @@ async function detectAndRecognizeText(imageElement) {
 
         currentOperation = 'processing';
         updateLoadingMessage(currentOperation);
+        console.log('Processing bounding boxes...');
 
         const boundingBoxes = extractBoundingBoxesFromHeatmap(heatmapCanvas, TARGET_SIZE);
+        console.log('Found bounding boxes:', boundingBoxes.length);
         
+        if (boundingBoxes.length === 0) {
+            console.log('No text regions detected');
+            return results;
+        }
+
         // Efficient canvas drawing
         const ctx = previewCanvas.getContext('2d', { alpha: false });
         ctx.drawImage(imageElement, 0, 0, TARGET_SIZE[0], TARGET_SIZE[1]);
         
+        // Draw bounding boxes on preview
+        boundingBoxes.forEach(box => {
+            const [[x1, y1], [x2, y2], [x3, y3], [x4, y4]] = box.coordinates;
+            ctx.strokeStyle = box.config.stroke;
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            ctx.moveTo(x1 * TARGET_SIZE[0], y1 * TARGET_SIZE[1]);
+            ctx.lineTo(x2 * TARGET_SIZE[0], y2 * TARGET_SIZE[1]);
+            ctx.lineTo(x3 * TARGET_SIZE[0], y3 * TARGET_SIZE[1]);
+            ctx.lineTo(x4 * TARGET_SIZE[0], y4 * TARGET_SIZE[1]);
+            ctx.closePath();
+            ctx.stroke();
+        });
+        
         // Optimized crop creation
+        console.log('Creating crops...');
         const crops = await createCropsEfficiently(boundingBoxes, imageElement);
+        console.log('Created crops:', crops.length);
         
         currentOperation = 'recognition';
         updateLoadingMessage(currentOperation);
@@ -44,37 +75,97 @@ async function detectAndRecognizeText(imageElement) {
             
             // Update progress
             updateProgress(i, crops.length);
+            console.log(`Processing batch ${i / batchSize + 1} of ${Math.ceil(crops.length / batchSize)}`);
             
-            // Move tensor operations outside of tidy
-            const inputTensor = preprocessImageForRecognition(batch.map(crop => crop.canvas));
-            const predictions = await recognitionModel.executeAsync(inputTensor);
-            const probabilities = tf.softmax(predictions, -1);
-            const bestPath = tf.argMax(probabilities, -1).arraySync();
-            
-            const words = decodeText(bestPath.map(path => tf.tensor1d(path)));
-            words.split(' ').forEach((word, index) => {
-                if (word && batch[index]) {
-                    results.push({
-                        word: word,
-                        boundingBox: batch[index].bbox
-                    });
-                }
-            });
-            
-            // Clean up tensors
-            inputTensor.dispose();
-            predictions.dispose();
-            probabilities.dispose();
-            
-            // Force garbage collection after each batch if available
-            if (window.gc) window.gc();
+            try {
+                // Process batch
+                const inputTensor = preprocessImageForRecognition(batch.map(crop => crop.canvas));
+                const predictions = await recognitionModel.executeAsync(inputTensor);
+                const probabilities = tf.softmax(predictions, -1);
+                const bestPath = tf.argMax(probabilities, -1).arraySync();
+                
+                const words = decodeText(bestPath.map(path => tf.tensor1d(path)));
+                
+                // Split words and associate with bounding boxes
+                words.split(' ').forEach((word, index) => {
+                    if (word && word.trim() && batch[index]) {
+                        results.push({
+                            word: word.trim(),
+                            boundingBox: batch[index].bbox
+                        });
+                        console.log('Recognized word:', word.trim());
+                    }
+                });
+                
+                // Clean up tensors
+                inputTensor.dispose();
+                predictions.dispose();
+                probabilities.dispose();
+            } catch (error) {
+                console.error('Error processing batch:', error);
+                continue; // Continue with next batch if one fails
+            }
             
             // Allow UI thread to breathe between batches
-            await new Promise(resolve => setTimeout(resolve, 0));
+            await new Promise(resolve => setTimeout(resolve, 10));
         }
         
+        console.log('Processing completed. Found', results.length, 'text regions');
         return results;
+    } catch (error) {
+        console.error('Error in detectAndRecognizeText:', error);
+        throw error;
     } finally {
         tf.disposeVariables();
+    }
+}
+
+// Update the handleCapture function to better handle errors and show progress
+async function handleCapture() {
+    disableCaptureButton();
+    showLoading('Initializing...');
+    
+    try {
+        await ensureModelsLoaded();
+        
+        const ctx = canvas.getContext('2d', { alpha: false });
+        canvas.width = TARGET_SIZE[0];
+        canvas.height = TARGET_SIZE[1];
+        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+        
+        // Optimize image quality while maintaining size
+        imageDataUrl = canvas.toDataURL('image/jpeg', 0.95); // Increased quality
+        
+        const img = new Image();
+        img.crossOrigin = 'anonymous';
+        img.src = imageDataUrl;
+        
+        await new Promise((resolve, reject) => {
+            img.onload = resolve;
+            img.onerror = reject;
+        });
+        
+        console.log('Starting text detection and recognition...');
+        extractedData = await detectAndRecognizeText(img);
+        
+        if (extractedData.length === 0) {
+            resultElement.textContent = 'No text detected in image';
+        } else {
+            extractedText = extractedData.map(item => item.word).join(' ');
+            resultElement.textContent = `Extracted Text: ${extractedText}`;
+        }
+        
+        // Show preview and buttons
+        previewCanvas.style.display = 'block';
+        confirmButton.style.display = 'inline-block';
+        retryButton.style.display = 'inline-block';
+        captureButton.style.display = 'none';
+        
+    } catch (error) {
+        console.error('Error during capture:', error);
+        resultElement.textContent = 'Error occurred during processing. Please try again.';
+    } finally {
+        enableCaptureButton();
+        hideLoading();
     }
 }
