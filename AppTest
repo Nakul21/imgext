@@ -209,8 +209,7 @@ async function detectAndRecognizeText(imageElement) {
         previewCanvas.height = height;
         previewCanvas.getContext('2d').drawImage(tempCanvas, 0, 0);
         
-        // Rest of the processing...
-        // [Previous crop generation code remains the same]
+...
         
         // Process in smaller batches for mobile
         const batchSize = deviceCaps.isMobile ? MOBILE_BATCH_SIZE : DESKTOP_BATCH_SIZE;
