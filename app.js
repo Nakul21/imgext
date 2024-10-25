@@ -686,3 +686,7 @@ window.addEventListener('appinstalled', (evt) => {
     console.log('App was installed.');
     installBtn.style.display = 'none';
 });
+
+export default WorkerPool;
+export { init , detectAndRecognizeText };
+
