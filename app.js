@@ -28,6 +28,80 @@ let extractedData = [];
 let detectionModel;
 let recognitionModel;
 
+
+class WorkerPool {
+    constructor(workerScript, poolSize) {
+        this.workers = [];
+        this.available = [];
+        this.queue = [];
+        this.poolSize = poolSize || navigator.hardwareConcurrency || 4;
+        
+        for (let i = 0; i < this.poolSize; i++) {
+            const worker = new Worker(workerScript);
+            worker.onmessage = this.handleWorkerMessage.bind(this);
+            this.workers.push(worker);
+            this.available.push(i);
+        }
+    }
+    
+    async initialize() {
+        const initPromises = this.workers.map((worker, index) => {
+            return new Promise((resolve) => {
+                const handler = (e) => {
+                    if (e.data.type === 'initialized') {
+                        worker.removeEventListener('message', handler);
+                        resolve();
+                    }
+                };
+                worker.addEventListener('message', handler);
+                worker.postMessage({ type: 'init' });
+            });
+        });
+        
+        await Promise.all(initPromises);
+    }
+    
+    async processTask(task) {
+        return new Promise((resolve, reject) => {
+            const workerIndex = this.available.shift();
+            
+            if (workerIndex !== undefined) {
+                const worker = this.workers[workerIndex];
+                
+                const handler = (e) => {
+                    if (e.data.type === task.responseType) {
+                        worker.removeEventListener('message', handler);
+                        this.available.push(workerIndex);
+                        this.processNextTask();
+                        resolve(e.data);
+                    } else if (e.data.type === 'error') {
+                        reject(new Error(e.data.error));
+                    }
+                };
+                
+                worker.addEventListener('message', handler);
+                worker.postMessage(task.message);
+            } else {
+                this.queue.push({ task, resolve, reject });
+            }
+        });
+    }
+    
+    processNextTask() {
+        if (this.queue.length > 0 && this.available.length > 0) {
+            const { task, resolve, reject } = this.queue.shift();
+            this.processTask(task).then(resolve).catch(reject);
+        }
+    }
+    
+    terminate() {
+        this.workers.forEach(worker => worker.terminate());
+        this.workers = [];
+        this.available = [];
+        this.queue = [];
+    }
+}
+
 async function isWebGPUSupported() {
     if (!navigator.gpu) {
         return false;
@@ -255,130 +329,60 @@ function getRandomColor() {
     return '#' + Math.floor(Math.random()*16777215).toString(16);
 }
 
+// Modified detectAndRecognizeText function
 async function detectAndRecognizeText(imageElement) {
-    const results = [];
-    let currentOperation = 'detection';
-   
-    if( isMobile() ) {
-        useCPU();
-    }
-    
+    const workerPool = new WorkerPool('worker.js');
+    await workerPool.initialize();
     
     try {
-        // Update loading message
-        updateLoadingMessage(currentOperation);
-        
-        // Ensure image is loaded
-        if (!imageElement.complete) {
-            await new Promise(resolve => {
-                imageElement.onload = resolve;
-            });
-        }
-
         // Detection phase
-        console.log('Starting detection...');
-        const tensor = preprocessImageForDetection(imageElement);
-        const prediction = await detectionModel.execute(tensor);
-        const squeezedPrediction = tf.squeeze(prediction, 0);
-        
-        // Create canvas and draw heatmap
-        const heatmapCanvas = document.createElement('canvas');
-        heatmapCanvas.width = TARGET_SIZE[0];
-        heatmapCanvas.height = TARGET_SIZE[1];
-        await tf.browser.toPixels(squeezedPrediction, heatmapCanvas); // Fixed: Draw to heatmapCanvas
-        
-        // Clean up tensors
-        tensor.dispose();
-        prediction.dispose();
-        squeezedPrediction.dispose();
-
-        currentOperation = 'processing';
-        updateLoadingMessage(currentOperation);
-        console.log('Processing bounding boxes...');
-
-        const boundingBoxes = extractBoundingBoxesFromHeatmap(heatmapCanvas, TARGET_SIZE);
-        console.log('Found bounding boxes:', boundingBoxes.length);
-        
-        if (boundingBoxes.length === 0) {
-            console.log('No text regions detected');
-            return results;
-        }
-
-        // Efficient canvas drawing
-        const ctx = previewCanvas.getContext('2d', { alpha: false });
-        ctx.drawImage(imageElement, 0, 0, TARGET_SIZE[0], TARGET_SIZE[1]);
-        
-        // Draw bounding boxes on preview
-        boundingBoxes.forEach(box => {
-            const [[x1, y1], [x2, y2], [x3, y3], [x4, y4]] = box.coordinates;
-            ctx.strokeStyle = box.config.stroke;
-            ctx.lineWidth = 2;
-            ctx.beginPath();
-            ctx.moveTo(x1 * TARGET_SIZE[0], y1 * TARGET_SIZE[1]);
-            ctx.lineTo(x2 * TARGET_SIZE[0], y2 * TARGET_SIZE[1]);
-            ctx.lineTo(x3 * TARGET_SIZE[0], y3 * TARGET_SIZE[1]);
-            ctx.lineTo(x4 * TARGET_SIZE[0], y4 * TARGET_SIZE[1]);
-            ctx.closePath();
-            ctx.stroke();
+        const detectionResult = await workerPool.processTask({
+            message: {
+                type: 'detect',
+                data: { imageData: imageElement }
+            },
+            responseType: 'detectComplete'
         });
         
-        // Optimized crop creation
-        console.log('Creating crops...');
-        const crops = await createCropsEfficiently(boundingBoxes, imageElement);
-        console.log('Created crops:', crops.length);
+        const boundingBoxes = detectionResult.boxes;
+        const results = [];
         
-        currentOperation = 'recognition';
-        updateLoadingMessage(currentOperation);
-
-        // Process crops in optimized batches
-        const batchSize = isMobile() ? 16 : 16; // Smaller batches for mobile
-        for (let i = 0; i < crops.length; i += batchSize) {
-            const batch = crops.slice(i, i + batchSize);
-            
-            // Update progress
-            updateProgress(i, crops.length);
-            console.log(`Processing batch ${i / batchSize + 1} of ${Math.ceil(crops.length / batchSize)}`);
-            
-            try {
-                // Process batch
-                const inputTensor = preprocessImageForRecognition(batch.map(crop => crop.canvas));
-                const predictions = await recognitionModel.executeAsync(inputTensor);
-                const probabilities = tf.softmax(predictions, -1);
-                const bestPath = tf.argMax(probabilities, -1).arraySync();
-                
-                const words = decodeText(bestPath.map(path => tf.tensor1d(path)));
-                
-                // Split words and associate with bounding boxes
-                words.split(' ').forEach((word, index) => {
-                    if (word && word.trim() && batch[index]) {
-                        results.push({
-                            word: word.trim(),
-                            boundingBox: batch[index].bbox
-                        });
-                        console.log('Recognized word:', word.trim());
+        // Recognition phase - process regions in parallel
+        const recognitionPromises = boundingBoxes.map((box, index) => {
+            return workerPool.processTask({
+                message: {
+                    type: 'processRegion',
+                    data: {
+                        imageData: imageElement,
+                        region: box,
+                        regionId: index
                     }
-                });
-                
-                // Clean up tensors
-                inputTensor.dispose();
-                predictions.dispose();
-                probabilities.dispose();
-            } catch (error) {
-                console.error('Error processing batch:', error);
-                continue; // Continue with next batch if one fails
-            }
-            
-            // Allow UI thread to breathe between batches
-            await new Promise(resolve => setTimeout(resolve, 10));
-        }
+                },
+                responseType: 'regionComplete'
+            });
+        });
         
-        console.log('Processing completed. Found', results.length, 'text regions');
+        const recognitionResults = await Promise.all(recognitionPromises);
+        
+        // Combine and sort results
+        recognitionResults.forEach(result => {
+            if (result.results && result.results.length > 0) {
+                results.push(...result.results);
+            }
+        });
+        
+        // Sort results by vertical position
+        results.sort((a, b) => {
+            return a.boundingBox.y - b.boundingBox.y;
+        });
+        
         return results;
+        
     } catch (error) {
-        console.error('Error in detectAndRecognizeText:', error);
+        console.error('Error in parallel processing:', error);
         throw error;
     } finally {
-        tf.disposeVariables();
+        workerPool.terminate();
     }
 }
 
@@ -587,29 +591,37 @@ function monitorMemoryUsage() {
 async function init() {
     showLoading('Initializing...');
     
-    await tf.ready();
-     
-    if (await isWebGPUSupported()){
-        console.log('WebGPU is supported. Attempting to set backend...');
-        try {
-            await tf.setBackend('webgpu');
-            console.log('Successfully set WebGPU backend');
-        } catch (e) {
-            console.error('Failed to set WebGPU backend:', e);
-            await fallbackToWebGLorCPU();
-        }
-    } else {
-        console.log('WebGPU is not supported');
-        await fallbackToWebGLorCPU();
+    try {
+        await tf.ready();
+        const workerPool = new WorkerPool('worker.js');
+        await workerPool.initialize();
+        
+        // Start memory monitoring
+        monitorMemoryUsage(workerPool);
+        
+        await setupCamera();
+        hideLoading();
+        
+        return workerPool;
+    } catch (error) {
+        console.error('Initialization failed:', error);
+        showLoading('Initialization failed. Please refresh the page.');
+        throw error;
     }
-    
-    initializeModelLoading();
-    await setupCamera();
-    
-    captureButton.disabled = false;
-    captureButton.textContent = 'Capture';
-    
-    hideLoading();
+}
+
+function monitorMemoryUsage(workerPool) {
+    return setInterval(async () => {
+        const mainInfo = await tf.memory();
+        console.log('Main Thread Memory:', {
+            numTensors: mainInfo.numTensors,
+            numDataBuffers: mainInfo.numDataBuffers
+        });
+        
+        workerPool.workers.forEach((worker, index) => {
+            worker.postMessage({ type: 'getMemoryInfo' });
+        });
+    }, 5000);
 }
 
 function loadOpenCV() {
