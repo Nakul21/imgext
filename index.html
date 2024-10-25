@@ -2,46 +2,99 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Text Extraction App</title>
-    <link rel="stylesheet" href="styles.css">
-    <link rel="manifest" href="manifest.json">
-    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@3.11.0/dist/tf.min.js"></script>
-    <script src="lib/pica.js"></script>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="theme-color" content="#000000">
+    <title>Text Recognition App</title>
 </head>
 <body>
-
     <div id="appContainer" class="app-container">
-        <button id="install-btn" style="display: none;">Install App</button>
+        <button id="install-btn">Install App</button>
+        
         <video id="video" autoplay playsinline></video>
-        <canvas id="canvas" style="display: none;"></canvas>
-        <canvas id="previewCanvas" style="display: none;"></canvas>
+        <canvas id="canvas"></canvas>
+        <canvas id="previewCanvas"></canvas>
+        
         <div class="controls">
-            <button id="captureButton">Capture</button>
+            <button id="captureButton" disabled>Capture</button>
             <button id="confirmButton" style="display: none;">Confirm</button>
             <button id="retryButton" style="display: none;">Retry</button>
+            
             <div id="actionButtons" style="display: none;">
                 <button id="sendButton">Send</button>
                 <button id="discardButton">Discard</button>
             </div>
         </div>
-        <div id="loadingIndicator" style="display: none;"></div>
+        
+        <div id="loadingIndicator" style="display: none;">
+            Initializing...
+        </div>
+        
         <div id="result" class="result"></div>
         <div id="apiResponse" class="api-response"></div>
     </div>
-    <script src="app.js"></script>
-     <script src="lib/opencv.js"></script>
-<script type="module">
-    import { init, detectAndRecognizeText } from './app.js';
+
+    <!-- Load TensorFlow.js -->
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs/dist/tf.min.js"></script>
     
-    // Initialize the application
-    const workerPool = await init();
+    <!-- Load OpenCV.js -->
+    <script async src="https://docs.opencv.org/4.5.2/opencv.js"></script>
+
+    <!-- Worker initialization script -->
+    <script>
+        // Check if Web Workers are supported
+        if (typeof Worker === 'undefined') {
+            console.error('Web Workers are not supported in this browser');
+            document.getElementById('loadingIndicator').textContent = 
+                'Your browser does not support required features. Please use a modern browser.';
+        }
+
+        // Create a worker pool when the page loads
+        let workerPool;
+        
+        async function initializeWorkerPool() {
+            try {
+                // Import the WorkerPool class from app.js
+                const { WorkerPool } = await import('./app.js');
+                
+                // Create the worker pool
+                workerPool = new WorkerPool('worker.js', navigator.hardwareConcurrency || 4);
+                
+                // Initialize the worker pool
+                await workerPool.initialize();
+                
+                console.log('Worker pool initialized successfully');
+                
+                // Enable the capture button once workers are ready
+                document.getElementById('captureButton').disabled = false;
+                
+            } catch (error) {
+                console.error('Failed to initialize worker pool:', error);
+                document.getElementById('loadingIndicator').textContent = 
+                    'Failed to initialize the application. Please refresh the page.';
+            }
+        }
+
+        // Handle cleanup when the page is closed
+        window.addEventListener('beforeunload', () => {
+            if (workerPool) {
+                workerPool.terminate();
+            }
+        });
+
+        // Start initialization when OpenCV is ready
+        window.onload = function() {
+            if (window.cv) {
+                initializeWorkerPool();
+            } else {
+                // Wait for OpenCV.js to be ready
+                cv['onRuntimeInitialized'] = function() {
+                    initializeWorkerPool();
+                };
+            }
+        };
+    </script>
     
-    // Use in your event handlers
-    captureButton.addEventListener('click', async () => {
-        const results = await detectAndRecognizeText(imageElement);
-        // Process results...
-    });
-</script>
+    <!-- Load application script as a module -->
+    <script src="app.js" type="module"></script>
 </body>
 </html>
