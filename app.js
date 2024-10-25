@@ -260,7 +260,7 @@ function getRandomColor() {
 // Modified detectAndRecognizeText function
 async function detectAndRecognizeText(imageElement) {
     const workerPool = new WorkerPool('worker.js');
-    await workerPool.initialize();
+    await workerPool.initializeWorkers();
     
     try {
         // Detection phase
