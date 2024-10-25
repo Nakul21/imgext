@@ -597,7 +597,7 @@ async function init() {
         await workerPool.initialize();
         
         // Start memory monitoring
-        monitorMemoryUsage(workerPool);
+        //monitorMemoryUsage(workerPool);
         
         await setupCamera();
         hideLoading();
@@ -610,19 +610,19 @@ async function init() {
     }
 }
 
-function monitorMemoryUsage(workerPool) {
-    return setInterval(async () => {
-        const mainInfo = await tf.memory();
-        console.log('Main Thread Memory:', {
-            numTensors: mainInfo.numTensors,
-            numDataBuffers: mainInfo.numDataBuffers
-        });
+// function monitorMemoryUsage(workerPool) {
+//     return setInterval(async () => {
+//         const mainInfo = await tf.memory();
+//         console.log('Main Thread Memory:', {
+//             numTensors: mainInfo.numTensors,
+//             numDataBuffers: mainInfo.numDataBuffers
+//         });
         
-        workerPool.workers.forEach((worker, index) => {
-            worker.postMessage({ type: 'getMemoryInfo' });
-        });
-    }, 5000);
-}
+//         workerPool.workers.forEach((worker, index) => {
+//             worker.postMessage({ type: 'getMemoryInfo' });
+//         });
+//     }, 5000);
+// }
 
 function loadOpenCV() {
     return new Promise((resolve) => {
