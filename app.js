@@ -1,3 +1,5 @@
+
+import WorkerPool from './worker-pool.js';
 // Constants
 const REC_MEAN = 0.694;
 const REC_STD = 0.298;
@@ -27,80 +29,6 @@ let extractedText = '';
 let extractedData = [];
 let detectionModel;
 let recognitionModel;
-
-
-class WorkerPool {
-    constructor(workerScript) {
-        this.workers = [];
-        this.available = [];
-        this.queue = [];
-        this.poolSize = poolSize || navigator.hardwareConcurrency || 4;
-        
-        for (let i = 0; i < this.poolSize; i++) {
-            const worker = new Worker(workerScript);
-            worker.onmessage = this.handleWorkerMessage.bind(this);
-            this.workers.push(worker);
-            this.available.push(i);
-        }
-    }
-    
-    async initialize() {
-        const initPromises = this.workers.map((worker, index) => {
-            return new Promise((resolve) => {
-                const handler = (e) => {
-                    if (e.data.type === 'initialized') {
-                        worker.removeEventListener('message', handler);
-                        resolve();
-                    }
-                };
-                worker.addEventListener('message', handler);
-                worker.postMessage({ type: 'init' });
-            });
-        });
-        
-        await Promise.all(initPromises);
-    }
-    
-    async processTask(task) {
-        return new Promise((resolve, reject) => {
-            const workerIndex = this.available.shift();
-            
-            if (workerIndex !== undefined) {
-                const worker = this.workers[workerIndex];
-                
-                const handler = (e) => {
-                    if (e.data.type === task.responseType) {
-                        worker.removeEventListener('message', handler);
-                        this.available.push(workerIndex);
-                        this.processNextTask();
-                        resolve(e.data);
-                    } else if (e.data.type === 'error') {
-                        reject(new Error(e.data.error));
-                    }
-                };
-                
-                worker.addEventListener('message', handler);
-                worker.postMessage(task.message);
-            } else {
-                this.queue.push({ task, resolve, reject });
-            }
-        });
-    }
-    
-    processNextTask() {
-        if (this.queue.length > 0 && this.available.length > 0) {
-            const { task, resolve, reject } = this.queue.shift();
-            this.processTask(task).then(resolve).catch(reject);
-        }
-    }
-    
-    terminate() {
-        this.workers.forEach(worker => worker.terminate());
-        this.workers = [];
-        this.available = [];
-        this.queue = [];
-    }
-}
 
 async function isWebGPUSupported() {
     if (!navigator.gpu) {
@@ -687,6 +615,5 @@ window.addEventListener('appinstalled', (evt) => {
     installBtn.style.display = 'none';
 });
 
-export default WorkerPool;
 export { init , detectAndRecognizeText };
 
