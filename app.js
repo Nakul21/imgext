@@ -30,7 +30,7 @@ let recognitionModel;
 
 
 class WorkerPool {
-    constructor(workerScript, poolSize) {
+    constructor(workerScript) {
         this.workers = [];
         this.available = [];
         this.queue = [];
