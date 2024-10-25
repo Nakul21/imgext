@@ -1,5 +1,5 @@
-
 import WorkerPool from './worker-pool.js';
+
 // Constants
 const REC_MEAN = 0.694;
 const REC_STD = 0.298;
@@ -7,6 +7,7 @@ const DET_MEAN = 0.785;
 const DET_STD = 0.275;
 const VOCAB = "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ!\"#$%&'()*+,-./:;<=>?@[\\]^_`{|}~°£€¥¢฿àâéèêëîïôùûüçÀÂÉÈÊËÎÏÔÙÛÜÇ";
 const TARGET_SIZE = [512, 512];
+
 // DOM Elements
 const video = document.getElementById('video');
 const canvas = document.getElementById('canvas');
@@ -22,13 +23,24 @@ const apiResponseElement = document.getElementById('apiResponse');
 const loadingIndicator = document.getElementById('loadingIndicator');
 const appContainer = document.getElementById('appContainer');
 
-let modelLoadingPromise;
-
+// Global state
 let imageDataUrl = '';
 let extractedText = '';
 let extractedData = [];
+let workerPool = null;
+let isInitialized = false;
 let detectionModel;
 let recognitionModel;
+
+function updateLoadingStatus(message) {
+    console.log('Loading status:', message);
+    loadingIndicator.textContent = message;
+    loadingIndicator.style.display = 'block';
+}
+
+function hideLoading() {
+    loadingIndicator.style.display = 'none';
+}
 
 async function isWebGPUSupported() {
     if (!navigator.gpu) {
@@ -48,72 +60,108 @@ async function isWebGPUSupported() {
 }
 
 async function fallbackToWebGLorCPU() {
-        try {
-            await tf.setBackend('webgl');
-            console.log('Fallback to WebGL backend successful');
-        } catch (e) {
-            console.error('Failed to set WebGL backend:', e);
-            useCPU();
-        }
-}
-
-function showLoading(message) {
-    loadingIndicator.textContent = message;
-    loadingIndicator.style.display = 'block';
-    //appContainer.style.display = 'none';
-}
-
-function hideLoading() {
-    loadingIndicator.style.display = 'none';
-    //appContainer.style.display = 'block';
+    try {
+        await tf.setBackend('webgl');
+        console.log('Fallback to WebGL backend successful');
+    } catch (e) {
+        console.error('Failed to set WebGL backend:', e);
+        await tf.setBackend('cpu');
+        console.log('Fallback to CPU backend');
+    }
 }
 
 async function loadModels() {
     try {
-        showLoading('Loading detection model...');
+        updateLoadingStatus('Loading detection model...');
         detectionModel = await tf.loadGraphModel('models/db_mobilenet_v2/model.json');
         
-        showLoading('Loading recognition model...');
+        updateLoadingStatus('Loading recognition model...');
         recognitionModel = await tf.loadGraphModel('models/crnn_mobilenet_v2/model.json');
         
         console.log('Models loaded successfully');
-        hideLoading();
     } catch (error) {
         console.error('Error loading models:', error);
-        showLoading('Error loading models. Please refresh the page.');
+        throw new Error('Failed to load models: ' + error.message);
     }
 }
 
-function initializeModelLoading() {
-    modelLoadingPromise = loadModels();
+async function loadOpenCV() {
+    updateLoadingStatus('Loading OpenCV...');
+    return new Promise((resolve, reject) => {
+        if (window.cv) {
+            resolve();
+            return;
+        }
+        
+        const script = document.createElement('script');
+        script.src = 'https://docs.opencv.org/4.5.2/opencv.js';
+        script.onload = () => {
+            console.log('OpenCV loaded successfully');
+            resolve();
+        };
+        script.onerror = () => {
+            const error = new Error('Failed to load OpenCV');
+            console.error(error);
+            reject(error);
+        };
+        document.body.appendChild(script);
+    });
 }
 
-async function ensureModelsLoaded() {
-    if (modelLoadingPromise) {
-        await modelLoadingPromise;
-    }
-}
-
-async function setupCamera() {
-    showLoading('Setting up camera...');
+async function initializeWorkerPool() {
+    updateLoadingStatus('Initializing worker pool...');
     try {
-        const stream = await navigator.mediaDevices.getUserMedia({ 
-            video: { 
+        workerPool = new WorkerPool('worker.js');
+        await workerPool.initialize();
+        console.log('Worker pool initialized successfully');
+        return workerPool;
+    } catch (error) {
+        console.error('Failed to initialize worker pool:', error);
+        throw error;
+    }
+}
+
+async function initializeCamera() {
+    updateLoadingStatus('Setting up camera...');
+    try {
+        const stream = await navigator.mediaDevices.getUserMedia({
+            video: {
                 facingMode: 'environment',
                 width: { ideal: 512 },
                 height: { ideal: 512 }
-            } 
+            }
         });
+        
         video.srcObject = stream;
-        return new Promise((resolve) => {
-            video.onloadedmetadata = () => {
-                hideLoading();
-                resolve(video);
-            };
+        await new Promise((resolve, reject) => {
+            video.onloadedmetadata = resolve;
+            video.onerror = reject;
         });
+        
+        // Start playing the video
+        await video.play();
+        
+        console.log('Camera initialized successfully');
+        return stream;
     } catch (error) {
-        console.error('Error setting up camera:', error);
-        showLoading('Error setting up camera. Please check permissions and refresh.');
+        console.error('Camera initialization failed:', error);
+        throw new Error(`Camera setup failed: ${error.message}`);
+    }
+}
+
+async function initializeTensorFlow() {
+    updateLoadingStatus('Initializing TensorFlow...');
+    try {
+        await tf.ready();
+        if (await isWebGPUSupported()) {
+            await tf.setBackend('webgpu');
+        } else {
+            await fallbackToWebGLorCPU();
+        }
+        console.log('TensorFlow initialized successfully');
+    } catch (error) {
+        console.error('TensorFlow initialization failed:', error);
+        throw error;
     }
 }
 
@@ -136,7 +184,6 @@ function preprocessImageForRecognition(crops) {
             const w = crop.width;
             const aspectRatio = targetSize[1] / targetSize[0];
             
-            // Precalculate resize dimensions
             const [resizeTarget, paddingTarget] = tf.tidy(() => {
                 if (aspectRatio * h > w) {
                     const newWidth = Math.round((targetSize[0] * w) / h);
@@ -153,7 +200,7 @@ function preprocessImageForRecognition(crops) {
                 }
             });
 
-            return tf.browser.fromPixels(crop)
+            return tf.browser.fromPixels(crop.canvas)
                 .resizeNearestNeighbor(resizeTarget)
                 .pad(paddingTarget, 0)
                 .toFloat();
@@ -185,16 +232,45 @@ function decodeText(bestPath) {
     return collapsed.trim();
 }
 
-async function getHeatMapFromImage(imageObject) {
-    let tensor = preprocessImageForDetection(imageObject);
+async function detectAndRecognizeText(imageElement) {
+    try {
+        // Get heatmap
+        const heatmap = await getHeatMapFromImage(imageElement);
+        
+        // Extract bounding boxes
+        const boundingBoxes = extractBoundingBoxesFromHeatmap(heatmap, TARGET_SIZE);
+        
+        // Create crops
+        const crops = await createCropsEfficiently(boundingBoxes, imageElement);
+        
+        // Process crops for recognition
+        const processedCrops = preprocessImageForRecognition(crops);
+        
+        // Recognize text
+        const predictions = await recognitionModel.predict(processedCrops);
+        const texts = predictions.map(decodeText);
+        
+        // Combine results
+        return boundingBoxes.map((box, index) => ({
+            boundingBox: box,
+            word: texts[index]
+        }));
+    } catch (error) {
+        console.error('Error in text detection and recognition:', error);
+        throw error;
+    }
+}
+
+async function getHeatMapFromImage(imageElement) {
+    let tensor = preprocessImageForDetection(imageElement);
     let prediction = await detectionModel.execute(tensor);
     prediction = tf.squeeze(prediction, 0);
     if (Array.isArray(prediction)) {
         prediction = prediction[0];
     }
     const heatmapCanvas = document.createElement('canvas');
-    heatmapCanvas.width = imageObject.width;
-    heatmapCanvas.height = imageObject.height;
+    heatmapCanvas.width = imageElement.width;
+    heatmapCanvas.height = imageElement.height;
     await tf.browser.toPixels(prediction, heatmapCanvas);
     tensor.dispose();
     prediction.dispose();
@@ -203,6 +279,10 @@ async function getHeatMapFromImage(imageObject) {
 
 function clamp(number, size) {
     return Math.max(0, Math.min(number, size));
+}
+
+function getRandomColor() {
+    return '#' + Math.floor(Math.random()*16777215).toString(16);
 }
 
 function transformBoundingBox(contour, id, size) {
@@ -248,72 +328,6 @@ function extractBoundingBoxesFromHeatmap(heatmapCanvas, size) {
     return boundingBoxes;
 }
 
-function useCPU() {
-    tf.setBackend('cpu');
-    console.log('Switched to CPU backend');
-}
-
-function getRandomColor() {
-    return '#' + Math.floor(Math.random()*16777215).toString(16);
-}
-
-// Modified detectAndRecognizeText function
-async function detectAndRecognizeText(imageElement) {
-    const workerPool = new WorkerPool('worker.js');
-    await workerPool.initializeWorkers();
-    
-    try {
-        // Detection phase
-        const detectionResult = await workerPool.processTask({
-            message: {
-                type: 'detect',
-                data: { imageData: imageElement }
-            },
-            responseType: 'detectComplete'
-        });
-        
-        const boundingBoxes = detectionResult.boxes;
-        const results = [];
-        
-        // Recognition phase - process regions in parallel
-        const recognitionPromises = boundingBoxes.map((box, index) => {
-            return workerPool.processTask({
-                message: {
-                    type: 'processRegion',
-                    data: {
-                        imageData: imageElement,
-                        region: box,
-                        regionId: index
-                    }
-                },
-                responseType: 'regionComplete'
-            });
-        });
-        
-        const recognitionResults = await Promise.all(recognitionPromises);
-        
-        // Combine and sort results
-        recognitionResults.forEach(result => {
-            if (result.results && result.results.length > 0) {
-                results.push(...result.results);
-            }
-        });
-        
-        // Sort results by vertical position
-        results.sort((a, b) => {
-            return a.boundingBox.y - b.boundingBox.y;
-        });
-        
-        return results;
-        
-    } catch (error) {
-        console.error('Error in parallel processing:', error);
-        throw error;
-    } finally {
-        workerPool.terminate();
-    }
-}
-
 async function createCropsEfficiently(boundingBoxes, imageElement) {
     const crops = [];
     const offscreenCanvas = document.createElement('canvas');
@@ -327,7 +341,6 @@ async function createCropsEfficiently(boundingBoxes, imageElement) {
         const x = x1 * imageElement.width;
         const y = y1 * imageElement.height;
         
-        // Reuse canvas instead of creating new ones
         offscreenCanvas.width = Math.min(width, 128);
         offscreenCanvas.height = Math.min(height, 32);
         
@@ -338,7 +351,6 @@ async function createCropsEfficiently(boundingBoxes, imageElement) {
             0, 0, offscreenCanvas.width, offscreenCanvas.height
         );
         
-        // Clone the canvas for storage
         const cropCanvas = document.createElement('canvas');
         cropCanvas.width = offscreenCanvas.width;
         cropCanvas.height = offscreenCanvas.height;
@@ -368,32 +380,32 @@ function enableCaptureButton() {
     captureButton.textContent = 'Capture';
 }
 
-
 async function handleCapture() {
+    if (!isInitialized) {
+        console.error('Cannot capture - application not initialized');
+        return;
+    }
+
     disableCaptureButton();
-    showLoading('Initializing...');
+    updateLoadingStatus('Processing image...');
     
     try {
-        await ensureModelsLoaded();
-        
-        const ctx = canvas.getContext('2d', { alpha: false });
+        const ctx = canvas.getContext('2d');
         canvas.width = TARGET_SIZE[0];
         canvas.height = TARGET_SIZE[1];
         ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
         
-        // Optimize image quality while maintaining size
-        imageDataUrl = canvas.toDataURL('image/jpeg', 0.95); // Increased quality
+        imageDataUrl = canvas.toDataURL('image/jpeg', 0.95);
         
         const img = new Image();
         img.crossOrigin = 'anonymous';
-        img.src = imageDataUrl;
-        
         await new Promise((resolve, reject) => {
             img.onload = resolve;
             img.onerror = reject;
+            img.src = imageDataUrl;
         });
         
-        console.log('Starting text detection and recognition...');
+        console.log('Starting text detection...');
         extractedData = await detectAndRecognizeText(img);
         
         if (extractedData.length === 0) {
@@ -403,18 +415,18 @@ async function handleCapture() {
             resultElement.textContent = `Extracted Text: ${extractedText}`;
         }
         
-        // Show preview and buttons
+        // Update UI
         previewCanvas.style.display = 'block';
         confirmButton.style.display = 'inline-block';
         retryButton.style.display = 'inline-block';
         captureButton.style.display = 'none';
         
     } catch (error) {
-        console.error('Error during capture:', error);
-        resultElement.textContent = 'Error occurred during processing. Please try again.';
+        console.error('Capture failed:', error);
+        resultElement.textContent = `Error: ${error.message}`;
     } finally {
         enableCaptureButton();
-        hideLoading();
+        loadingIndicator.style.display = 'none';
     }
 }
 
@@ -538,20 +550,6 @@ async function init() {
     }
 }
 
-// function monitorMemoryUsage(workerPool) {
-//     return setInterval(async () => {
-//         const mainInfo = await tf.memory();
-//         console.log('Main Thread Memory:', {
-//             numTensors: mainInfo.numTensors,
-//             numDataBuffers: mainInfo.numDataBuffers
-//         });
-        
-//         workerPool.workers.forEach((worker, index) => {
-//             worker.postMessage({ type: 'getMemoryInfo' });
-//         });
-//     }, 5000);
-// }
-
 function loadOpenCV() {
     return new Promise((resolve) => {
         const script = document.createElement('script');
@@ -572,6 +570,7 @@ sendButton.addEventListener('click', handleSend);
 sendButton.addEventListener('touchstart', handleSend);
 discardButton.addEventListener('click', resetUI);
 discardButton.addEventListener('touchstart', resetUI);
+document.addEventListener('DOMContentLoaded', init);
 
 // Initialize the application
 init();
@@ -615,5 +614,5 @@ window.addEventListener('appinstalled', (evt) => {
     installBtn.style.display = 'none';
 });
 
-export { init , detectAndRecognizeText };
+export { init, detectAndRecognizeText };
 
