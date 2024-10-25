@@ -1,3 +1,204 @@
+
+// Constants remain the same
+const REC_MEAN = 0.694;
+const REC_STD = 0.298;
+const DET_MEAN = 0.785;
+const DET_STD = 0.275;
+const VOCAB = "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ!\"#$%&'()*+,-./:;<=>?@[\\]^_`{|}~°£€¥¢฿àâéèêëîïôùûüçÀÂÉÈÊËÎÏÔÙÛÜÇ";
+const TARGET_SIZE = [512, 512];
+
+// DOM Elements
+const video = document.getElementById('video');
+const canvas = document.getElementById('canvas');
+const previewCanvas = document.getElementById('previewCanvas');
+const captureButton = document.getElementById('captureButton');
+const confirmButton = document.getElementById('confirmButton');
+const retryButton = document.getElementById('retryButton');
+const actionButtons = document.getElementById('actionButtons');
+const sendButton = document.getElementById('sendButton');
+const discardButton = document.getElementById('discardButton');
+const resultElement = document.getElementById('result');
+const apiResponseElement = document.getElementById('apiResponse');
+const loadingIndicator = document.getElementById('loadingIndicator');
+const appContainer = document.getElementById('appContainer');
+
+// Global state
+let imageDataUrl = '';
+let extractedText = '';
+let extractedData = [];
+let workerPool = null;
+let isInitialized = false;
+
+function updateLoadingStatus(message) {
+    console.log('Loading status:', message);
+    loadingIndicator.textContent = message;
+}
+
+async function loadOpenCV() {
+    updateLoadingStatus('Loading OpenCV...');
+    return new Promise((resolve, reject) => {
+        if (window.cv) {
+            resolve();
+            return;
+        }
+        
+        const script = document.createElement('script');
+        script.src = 'https://docs.opencv.org/4.5.2/opencv.js';
+        script.onload = () => {
+            console.log('OpenCV loaded successfully');
+            resolve();
+        };
+        script.onerror = () => {
+            const error = new Error('Failed to load OpenCV');
+            console.error(error);
+            reject(error);
+        };
+        document.body.appendChild(script);
+    });
+}
+
+async function initializeWorkerPool() {
+    updateLoadingStatus('Initializing worker pool...');
+    try {
+        workerPool = new WorkerPool('worker.js');
+        await workerPool.initialize();
+        console.log('Worker pool initialized successfully');
+        return workerPool;
+    } catch (error) {
+        console.error('Failed to initialize worker pool:', error);
+        throw error;
+    }
+}
+
+async function initializeCamera() {
+    updateLoadingStatus('Setting up camera...');
+    try {
+        const stream = await navigator.mediaDevices.getUserMedia({
+            video: {
+                facingMode: 'environment',
+                width: { ideal: 512 },
+                height: { ideal: 512 }
+            }
+        });
+        
+        video.srcObject = stream;
+        await new Promise((resolve, reject) => {
+            video.onloadedmetadata = resolve;
+            video.onerror = reject;
+        });
+        
+        console.log('Camera initialized successfully');
+        return stream;
+    } catch (error) {
+        console.error('Camera initialization failed:', error);
+        throw new Error(`Camera setup failed: ${error.message}`);
+    }
+}
+
+async function initializeTensorFlow() {
+    updateLoadingStatus('Initializing TensorFlow...');
+    try {
+        await tf.ready();
+        if (await isWebGPUSupported()) {
+            await tf.setBackend('webgpu');
+        } else {
+            await fallbackToWebGLorCPU();
+        }
+        console.log('TensorFlow initialized successfully');
+    } catch (error) {
+        console.error('TensorFlow initialization failed:', error);
+        throw error;
+    }
+}
+
+async function init() {
+    if (isInitialized) {
+        console.log('Application already initialized');
+        return;
+    }
+
+    try {
+        updateLoadingStatus('Starting initialization...');
+        
+        // Initialize components in sequence
+        await initializeTensorFlow();
+        await loadOpenCV();
+        await initializeWorkerPool();
+        await initializeCamera();
+        
+        // Show the capture interface
+        loadingIndicator.style.display = 'none';
+        appContainer.style.display = 'block';
+        captureButton.disabled = false;
+        
+        isInitialized = true;
+        console.log('Application initialized successfully');
+        
+    } catch (error) {
+        console.error('Initialization failed:', error);
+        updateLoadingStatus(`Initialization failed: ${error.message}. Please refresh the page.`);
+        throw error;
+    }
+}
+
+// Modified capture handler with better error handling
+async function handleCapture() {
+    if (!isInitialized) {
+        console.error('Cannot capture - application not initialized');
+        return;
+    }
+
+    disableCaptureButton();
+    updateLoadingStatus('Processing image...');
+    
+    try {
+        const ctx = canvas.getContext('2d');
+        canvas.width = TARGET_SIZE[0];
+        canvas.height = TARGET_SIZE[1];
+        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+        
+        imageDataUrl = canvas.toDataURL('image/jpeg', 0.95);
+        
+        const img = new Image();
+        img.crossOrigin = 'anonymous';
+        await new Promise((resolve, reject) => {
+            img.onload = resolve;
+            img.onerror = reject;
+            img.src = imageDataUrl;
+        });
+        
+        console.log('Starting text detection...');
+        extractedData = await detectAndRecognizeText(img);
+        
+        if (extractedData.length === 0) {
+            resultElement.textContent = 'No text detected in image';
+        } else {
+            extractedText = extractedData.map(item => item.word).join(' ');
+            resultElement.textContent = `Extracted Text: ${extractedText}`;
+        }
+        
+        // Update UI
+        previewCanvas.style.display = 'block';
+        confirmButton.style.display = 'inline-block';
+        retryButton.style.display = 'inline-block';
+        captureButton.style.display = 'none';
+        
+    } catch (error) {
+        console.error('Capture failed:', error);
+        resultElement.textContent = `Error: ${error.message}`;
+    } finally {
+        enableCaptureButton();
+        loadingIndicator.style.display = 'none';
+    }
+}
+
+// Event listeners
+document.addEventListener('DOMContentLoaded', init);
+
+// Re-export necessary functions
+export { init, detectAndRecognizeText };
+
+
 import dataiku
 from kubernetes import client, config
 import pandas as pd
