@@ -153,6 +153,5 @@ self.onmessage = async function(e) {
 // Export necessary functions
 export {
     init,
-    detectAndRecognizeText,
-    WorkerPool
+    detectAndRecognizeText
 };
