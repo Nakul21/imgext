@@ -550,14 +550,6 @@ async function init() {
     }
 }
 
-function loadOpenCV() {
-    return new Promise((resolve) => {
-        const script = document.createElement('script');
-        script.src = 'https://docs.opencv.org/4.5.2/opencv.js';
-        script.onload = () => resolve();
-        document.body.appendChild(script);
-    });
-}
 
 // Event Listeners
 captureButton.addEventListener('click', handleCapture);
