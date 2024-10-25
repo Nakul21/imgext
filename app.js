@@ -32,6 +32,14 @@ let isInitialized = false;
 let detectionModel;
 let recognitionModel;
 
+
+function showLoading(message) {
+    loadingIndicator.textContent = message;
+    loadingIndicator.style.display = 'block';
+    //appContainer.style.display = 'none';
+}
+
+
 function updateLoadingStatus(message) {
     console.log('Loading status:', message);
     loadingIndicator.textContent = message;
