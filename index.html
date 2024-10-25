@@ -39,62 +39,7 @@
     <!-- Load OpenCV.js -->
     <script async src="https://docs.opencv.org/4.5.2/opencv.js"></script>
 
-    <!-- Worker initialization script -->
-    <script>
-        // Check if Web Workers are supported
-        if (typeof Worker === 'undefined') {
-            console.error('Web Workers are not supported in this browser');
-            document.getElementById('loadingIndicator').textContent = 
-                'Your browser does not support required features. Please use a modern browser.';
-        }
-
-        // Create a worker pool when the page loads
-        let workerPool;
-        
-        async function initializeWorkerPool() {
-            try {
-                // Import the WorkerPool class from app.js
-                const { WorkerPool } = await import('./app.js');
-                
-                // Create the worker pool
-                workerPool = new WorkerPool('worker.js');
-                
-                // Initialize the worker pool
-                await workerPool.initialize();
-                
-                console.log('Worker pool initialized successfully');
-                
-                // Enable the capture button once workers are ready
-                document.getElementById('captureButton').disabled = false;
-                
-            } catch (error) {
-                console.error('Failed to initialize worker pool:', error);
-                document.getElementById('loadingIndicator').textContent = 
-                    'Failed to initialize the application. Please refresh the page.';
-            }
-        }
-
-        // Handle cleanup when the page is closed
-        window.addEventListener('beforeunload', () => {
-            if (workerPool) {
-                workerPool.terminate();
-            }
-        });
-
-        // Start initialization when OpenCV is ready
-        window.onload = function() {
-            if (window.cv) {
-                initializeWorkerPool();
-            } else {
-                // Wait for OpenCV.js to be ready
-                cv['onRuntimeInitialized'] = function() {
-                    initializeWorkerPool();
-                };
-            }
-        };
-    </script>
-    
-    <!-- Load application script as a module -->
+  
     <script src="app.js" type="module"></script>
 </body>
 </html>
