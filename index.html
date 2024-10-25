@@ -31,5 +31,17 @@
     </div>
     <script src="app.js"></script>
      <script src="lib/opencv.js"></script>
+<script type="module">
+    import { init, detectAndRecognizeText } from './app.js';
+    
+    // Initialize the application
+    const workerPool = await init();
+    
+    // Use in your event handlers
+    captureButton.addEventListener('click', async () => {
+        const results = await detectAndRecognizeText(imageElement);
+        // Process results...
+    });
+</script>
 </body>
 </html>
