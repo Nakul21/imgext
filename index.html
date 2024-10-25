@@ -57,7 +57,7 @@
                 const { WorkerPool } = await import('./app.js');
                 
                 // Create the worker pool
-                workerPool = new WorkerPool('worker.js', navigator.hardwareConcurrency || 4);
+                workerPool = new WorkerPool('worker.js');
                 
                 // Initialize the worker pool
                 await workerPool.initialize();
