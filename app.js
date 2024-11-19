@@ -98,15 +98,44 @@ async function setupCamera() {
         const stream = await navigator.mediaDevices.getUserMedia({ 
             video: { 
                 facingMode: 'environment',
-                audio: 'false',
+                // Enhanced focus constraints
+                focusMode: 'continuous',
+                autoFocus: true,
                 advanced: [{
-                    focusMode: 'manual',
-                    focusDistance: 2
+                    focusMode: 'continuous',
+                    autoFocus: 'continuous'
+                }, {
+                    // Fallback focus settings
+                    focusDistance: 'optimal',
+                    focusMode: 'auto'
                 }],
                 width: { ideal: 512 },
                 height: { ideal: 512 }
-            } 
+            },
+            audio: false
         });
+
+        // Get video track to apply additional constraints
+        const videoTrack = stream.getVideoTracks()[0];
+        if (videoTrack) {
+            try {
+                // Apply additional focus settings
+                await videoTrack.applyConstraints({
+                    advanced: [{
+                        focusMode: 'continuous',
+                        autoFocus: true
+                    }]
+                });
+
+                // Add focus mode change event listener
+                videoTrack.addEventListener('focusmodechange', () => {
+                    console.log('Focus mode changed:', videoTrack.getSettings().focusMode);
+                });
+            } catch (error) {
+                console.warn('Could not apply additional focus constraints:', error);
+            }
+        }
+
         video.srcObject = stream;
         return new Promise((resolve) => {
             video.onloadedmetadata = () => {
@@ -119,6 +148,25 @@ async function setupCamera() {
         showLoading('Error setting up camera. Please check permissions and refresh.');
     }
 }
+
+function triggerFocus() {
+    if (video.srcObject) {
+        const videoTrack = video.srcObject.getVideoTracks()[0];
+        if (videoTrack) {
+            try {
+                videoTrack.applyConstraints({
+                    advanced: [{
+                        focusMode: 'continuous',
+                        autoFocus: true
+                    }]
+                });
+            } catch (error) {
+                console.warn('Could not trigger focus:', error);
+            }
+        }
+    }
+}
+
 
 function preprocessImageForDetection(imageElement) {
     const maxSize = isMobile() ? 512 : 2048; 
@@ -542,7 +590,11 @@ function loadOpenCV() {
 
 // Event Listeners
 captureButton.addEventListener('click', handleCapture);
-captureButton.addEventListener('touchstart', handleCapture);
+captureButton.addEventListener('touchstart', () => {
+    triggerFocus();
+    // Wait a short moment for focus to adjust
+    setTimeout(handleCapture, 500);
+});
 confirmButton.addEventListener('click', handleConfirm);
 confirmButton.addEventListener('touchstart', handleConfirm);
 retryButton.addEventListener('click', handleRetry);
