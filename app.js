@@ -98,6 +98,11 @@ async function setupCamera() {
         const stream = await navigator.mediaDevices.getUserMedia({ 
             video: { 
                 facingMode: 'environment',
+                focusMode: 'continuous',
+                audio: 'false',
+                advanced: [{
+                    focusMode: 'continuous'
+                }],
                 width: { ideal: 512 },
                 height: { ideal: 512 }
             } 
@@ -389,7 +394,7 @@ async function handleCapture() {
     canvas.height = targetSize[1];
     canvas.getContext('2d').drawImage(video, 0, 0, canvas.width, canvas.height);
 
-    imageDataUrl = canvas.toDataURL('image/jpeg', isMobile() ? 0.7 : 0.9);
+    imageDataUrl = canvas.toDataURL('image/jpeg', isMobile() ? 0.9 : 0.9);
     
     const img = new Image();
     img.src = imageDataUrl;
