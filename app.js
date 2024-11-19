@@ -98,10 +98,10 @@ async function setupCamera() {
         const stream = await navigator.mediaDevices.getUserMedia({ 
             video: { 
                 facingMode: 'environment',
-                focusMode: 'continuous',
                 audio: 'false',
                 advanced: [{
-                    focusMode: 'continuous'
+                    focusMode: 'manual',
+                    focusDistance: 2
                 }],
                 width: { ideal: 512 },
                 height: { ideal: 512 }
