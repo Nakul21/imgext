@@ -95,44 +95,35 @@ async function ensureModelsLoaded() {
 async function setupCamera() {
     showLoading('Setting up camera...');
     try {
-        const stream = await navigator.mediaDevices.getUserMedia({ 
-            video: { 
+        const constraints = {
+            video: {
                 facingMode: 'environment',
-                // Enhanced focus constraints
-                focusMode: 'continuous',
-                autoFocus: true,
-                advanced: [{
-                    focusMode: 'continuous',
-                    autoFocus: 'continuous'
-                }, {
-                    // Fallback focus settings
-                    focusDistance: 'optimal',
-                    focusMode: 'auto'
-                }],
                 width: { ideal: 512 },
-                height: { ideal: 512 }
+                height: { ideal: 512 },
+                focusMode: 'continuous',
+                advanced: [{
+                    focusMode: 'continuous'
+                }]
             },
             audio: false
-        });
+        };
 
+        const stream = await navigator.mediaDevices.getUserMedia(constraints);
+        
         // Get video track to apply additional constraints
         const videoTrack = stream.getVideoTracks()[0];
         if (videoTrack) {
             try {
-                // Apply additional focus settings
-                await videoTrack.applyConstraints({
-                    advanced: [{
-                        focusMode: 'continuous',
-                        autoFocus: true
-                    }]
-                });
-
-                // Add focus mode change event listener
-                videoTrack.addEventListener('focusmodechange', () => {
-                    console.log('Focus mode changed:', videoTrack.getSettings().focusMode);
-                });
+                const capabilities = videoTrack.getCapabilities();
+                // Only apply focus settings if the device supports them
+                if (capabilities.focusMode) {
+                    await videoTrack.applyConstraints({
+                        focusMode: 'continuous'
+                    });
+                }
             } catch (error) {
-                console.warn('Could not apply additional focus constraints:', error);
+                console.warn('Could not apply focus constraints:', error);
+                // Continue even if focus settings fail
             }
         }
 
@@ -146,6 +137,7 @@ async function setupCamera() {
     } catch (error) {
         console.error('Error setting up camera:', error);
         showLoading('Error setting up camera. Please check permissions and refresh.');
+        throw error;
     }
 }
 
@@ -153,21 +145,21 @@ function triggerFocus() {
     if (video.srcObject) {
         const videoTrack = video.srcObject.getVideoTracks()[0];
         if (videoTrack) {
-            try {
-                videoTrack.applyConstraints({
-                    advanced: [{
-                        focusMode: 'continuous',
-                        autoFocus: true
-                    }]
-                });
-            } catch (error) {
-                console.warn('Could not trigger focus:', error);
+            const capabilities = videoTrack.getCapabilities();
+            if (capabilities.focusMode) {
+                try {
+                    videoTrack.applyConstraints({
+                        focusMode: 'continuous'
+                    });
+                } catch (error) {
+                    console.warn('Could not trigger focus:', error);
+                }
             }
         }
     }
 }
-
-
+ 
+        
 function preprocessImageForDetection(imageElement) {
     const maxSize = isMobile() ? 512 : 2048; 
     const originalWidth = imageElement.width;
