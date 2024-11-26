@@ -1,40 +1,47 @@
 name: Deploy Static Site
 
 on:
-  # Triggers the workflow on push events to your specific branch
   push:
-    branches: [ web-workers-impl ]  # Replace with your branch name
-  # Manual trigger
+    branches: [ web-workers-impl ]
   workflow_dispatch:
 
+# Important: Add this permissions block
 permissions:
-  contents: write
+  contents: read
   pages: write
   id-token: write
 
+# Add this configuration block
+concurrency:
+  group: "pages"
+  cancel-in-progress: false
+
 jobs:
   deploy:
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
     runs-on: ubuntu-latest
     
     steps:
-      - name: Checkout specific branch
+      - name: Checkout repository
         uses: actions/checkout@v3
         with:
-          ref: web-workers-impl  # Replace with your branch name
-          
+          ref: web-workers-impl
+
       - name: Setup Pages
         uses: actions/configure-pages@v4
-        
+
       - name: Create deployment directory
         run: |
           mkdir -p dist
-          cp -r models dist/
-          cp -r lib dist/
-          cp -r image dist/
-          cp *.html dist/
-          cp *.js dist/
-          cp *.css dist/
-          cp *.json dist/
+          cp -r models dist/ || true
+          cp -r lib dist/ || true
+          cp -r image dist/ || true
+          cp *.html dist/ || true
+          cp *.js dist/ || true
+          cp *.css dist/ || true
+          cp *.json dist/ || true
 
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
