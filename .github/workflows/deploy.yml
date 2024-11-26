@@ -1,0 +1,46 @@
+name: Deploy Static Site
+
+on:
+  # Triggers the workflow on push events to your specific branch
+  push:
+    branches: [ web-workers-impl ]  # Replace with your branch name
+  # Manual trigger
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pages: write
+  id-token: write
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout specific branch
+        uses: actions/checkout@v3
+        with:
+          ref: web-workers-impl  # Replace with your branch name
+          
+      - name: Setup Pages
+        uses: actions/configure-pages@v4
+        
+      - name: Create deployment directory
+        run: |
+          mkdir -p dist
+          cp -r models dist/
+          cp -r lib dist/
+          cp -r image dist/
+          cp *.html dist/
+          cp *.js dist/
+          cp *.css dist/
+          cp *.json dist/
+
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
