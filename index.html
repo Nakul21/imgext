@@ -1,35 +1,135 @@
 <!DOCTYPE html>
 <html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no"
+    />
     <title>Text Extraction App</title>
-    <link rel="stylesheet" href="styles.css">
-    <link rel="manifest" href="manifest.json">
+    <link rel="stylesheet" href="styles.css" />
+    <link rel="manifest" href="manifest.json" />
     <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@3.11.0/dist/tf.min.js"></script>
-    <script src="lib/pica.js"></script>
-</head>
-<body>
+    <style>
+      .video-container {
+        position: relative;
+        border-radius: 8px;
+        overflow: hidden;
+        background: #000;
+        margin-bottom: var(--spacing-md);
+      }
 
-    <div id="appContainer" class="app-container">
-        <button id="install-btn" style="display: none;">Install App</button>
-        <video id="video" autoplay playsinline></video>
-        <canvas id="canvas" style="display: none;"></canvas>
-        <canvas id="previewCanvas" style="display: none;"></canvas>
-        <div class="controls">
-            <button id="captureButton">Capture</button>
-            <button id="confirmButton" style="display: none;">Confirm</button>
-            <button id="retryButton" style="display: none;">Retry</button>
-            <div id="actionButtons" style="display: none;">
-                <button id="sendButton">Send</button>
-                <button id="discardButton">Discard</button>
+      .hero {
+        text-align: center;
+        margin-bottom: var(--spacing-lg);
+      }
+
+      .hero h1 {
+        font-size: 2.5rem;
+        margin-bottom: var(--spacing-md);
+        color: var(--primary);
+      }
+
+      .hero p {
+        font-size: 1.2rem;
+        color: var(--text-light);
+        opacity: 0.9;
+      }
+      .scanner-container {
+        background: var(--secondary);
+        border: 2px solid var(--primary);
+        border-radius: 12px;
+        padding: var(--spacing-lg);
+        margin-bottom: var(--spacing-lg);
+        position: relative;
+      }
+      @media (max-width: 768px) {
+        .container {
+          padding: var(--spacing-md);
+        }
+
+        .hero h1 {
+          font-size: 2rem;
+        }
+
+        .button-group {
+          flex-direction: column;
+        }
+
+        .button {
+          width: 100%;
+          justify-content: center;
+        }
+
+        .scanner-container {
+          padding: var(--spacing-md);
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <header class="header">
+      <nav class="nav-container">
+        <a href="#" class="brand">ImageScan</a>
+        <div class="lang-selector">EN</div>
+      </nav>
+    </header>
+
+    <main class="container">
+      <section class="hero">
+        <h1>Extract Text from Images in Real-time</h1>
+        <p>
+          Advanced text recognition with instant results. Perfect for documents,
+          signs, and more.
+        </p>
+      </section>
+
+      <div class="scanner-container">
+        <div class="app-container">
+          <div class="video-container">
+            <video id="video" autoplay playsinline></video>
+            <canvas id="canvas" style="display: none;"></canvas>
+            <canvas id="previewCanvas" style="display: none;"></canvas>
+          </div>
+
+          <div id="processingOverlay" class="processing-overlay hidden">
+            <div class="loading-spinner"></div>
+            <p>Processing image...</p>
+          </div>
+
+          <div class="controls">
+            <div class="button-group">
+              <button id="captureButton" class="button">
+                <svg
+                  viewBox="0 0 24 24"
+                  width="24"
+                  height="24"
+                  fill="currentColor"
+                >
+                  <circle cx="12" cy="12" r="3.2"></circle>
+                  <path
+                    d="M9 2L7.17 4H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2h-3.17L15 2H9z"
+                  />
+                </svg>
+                Capture
+              </button>
+              <button id="confirmButton" class="button" style="display: none;">Confirm</button>
+              <button id="retryButton" class="button" style="display: none;">Retry</button>
             </div>
+            <div class="result-container">
+              <div id="actionButtons" style="display: none">
+                <button id="sendButton" class="button">Send</button>
+                <button id="discardButton" class="button" >Discard</button>
+              </div>
+              <div id="result" class="result"></div>
+              <div id="apiResponse" class="api-response"></div>
+            </div>
+          </div>
+
+          
         </div>
-        <div id="loadingIndicator" style="display: none;"></div>
-        <div id="result" class="result"></div>
-        <div id="apiResponse" class="api-response"></div>
-    </div>
+      </div>
+    </main>
     <script src="app.js"></script>
-     <script src="lib/opencv.js"></script>
-</body>
+  </body>
 </html>
