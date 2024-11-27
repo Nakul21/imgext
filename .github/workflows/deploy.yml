@@ -5,6 +5,7 @@ on:
     branches: [ web-workers-impl ]
   workflow_dispatch:
 
+# Important: Updated permissions
 permissions:
   contents: write
   pages: write
@@ -14,7 +15,6 @@ permissions:
 jobs:
   build-and-deploy:
     runs-on: ubuntu-latest
-    # Add environment configuration
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
