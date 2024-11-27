@@ -5,23 +5,19 @@ on:
     branches: [ web-workers-impl ]
   workflow_dispatch:
 
-# Important: Add this permissions block
 permissions:
-  contents: read
+  contents: write
   pages: write
   id-token: write
-
-# Add this configuration block
-concurrency:
-  group: "pages"
-  cancel-in-progress: false
+  deployments: write
 
 jobs:
-  deploy:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    # Add environment configuration
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
-    runs-on: ubuntu-latest
     
     steps:
       - name: Checkout repository
