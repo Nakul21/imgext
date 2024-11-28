@@ -54,73 +54,73 @@ async function setupCamera() {
   });
 }
 
-function preprocessImageForDetection(imageElement) {
-  const targetSize = [512, 512];
-  let tensor = tf.browser
-    .fromPixels(imageElement)
-    .resizeNearestNeighbor(targetSize)
-    .toFloat();
-  let mean = tf.scalar(255 * DET_MEAN);
-  let std = tf.scalar(255 * DET_STD);
-  return tensor.sub(mean).div(std).expandDims();
-}
+// function preprocessImageForDetection(imageElement) {
+//   const targetSize = [512, 512];
+//   let tensor = tf.browser
+//     .fromPixels(imageElement)
+//     .resizeNearestNeighbor(targetSize)
+//     .toFloat();
+//   let mean = tf.scalar(255 * DET_MEAN);
+//   let std = tf.scalar(255 * DET_STD);
+//   return tensor.sub(mean).div(std).expandDims();
+// }
 
-function preprocessImageForRecognition(crops) {
-  const targetSize = [32, 128];
-  const tensors = crops.map((crop) => {
-    let h = crop.height;
-    let w = crop.width;
-    let resizeTarget, paddingTarget;
-    let aspectRatio = targetSize[1] / targetSize[0];
-    if (aspectRatio * h > w) {
-      resizeTarget = [targetSize[0], Math.round((targetSize[0] * w) / h)];
-      paddingTarget = [
-        [0, 0],
-        [0, targetSize[1] - Math.round((targetSize[0] * w) / h)],
-        [0, 0],
-      ];
-    } else {
-      resizeTarget = [Math.round((targetSize[1] * h) / w), targetSize[1]];
-      paddingTarget = [
-        [0, targetSize[0] - Math.round((targetSize[1] * h) / w)],
-        [0, 0],
-        [0, 0],
-      ];
-    }
-    return tf.tidy(() => {
-      return tf.browser
-        .fromPixels(crop)
-        .resizeNearestNeighbor(resizeTarget)
-        .pad(paddingTarget, 0)
-        .toFloat()
-        .expandDims();
-    });
-  });
-  const tensor = tf.concat(tensors);
-  let mean = tf.scalar(255 * REC_MEAN);
-  let std = tf.scalar(255 * REC_STD);
-  return tensor.sub(mean).div(std);
-}
+// function preprocessImageForRecognition(crops) {
+//   const targetSize = [32, 128];
+//   const tensors = crops.map((crop) => {
+//     let h = crop.height;
+//     let w = crop.width;
+//     let resizeTarget, paddingTarget;
+//     let aspectRatio = targetSize[1] / targetSize[0];
+//     if (aspectRatio * h > w) {
+//       resizeTarget = [targetSize[0], Math.round((targetSize[0] * w) / h)];
+//       paddingTarget = [
+//         [0, 0],
+//         [0, targetSize[1] - Math.round((targetSize[0] * w) / h)],
+//         [0, 0],
+//       ];
+//     } else {
+//       resizeTarget = [Math.round((targetSize[1] * h) / w), targetSize[1]];
+//       paddingTarget = [
+//         [0, targetSize[0] - Math.round((targetSize[1] * h) / w)],
+//         [0, 0],
+//         [0, 0],
+//       ];
+//     }
+//     return tf.tidy(() => {
+//       return tf.browser
+//         .fromPixels(crop)
+//         .resizeNearestNeighbor(resizeTarget)
+//         .pad(paddingTarget, 0)
+//         .toFloat()
+//         .expandDims();
+//     });
+//   });
+//   const tensor = tf.concat(tensors);
+//   let mean = tf.scalar(255 * REC_MEAN);
+//   let std = tf.scalar(255 * REC_STD);
+//   return tensor.sub(mean).div(std);
+// }
 
-function decodeText(bestPath) {
-  const blank = 126;
-  let collapsed = "";
-  let lastChar = null;
+// function decodeText(bestPath) {
+//   const blank = 126;
+//   let collapsed = "";
+//   let lastChar = null;
 
-  for (const sequence of bestPath) {
-    const values = sequence.dataSync();
-    for (const k of values) {
-      if (k !== blank && k !== lastChar) {
-        collapsed += VOCAB[k];
-        lastChar = k;
-      } else if (k === blank) {
-        lastChar = null;
-      }
-    }
-    collapsed += " ";
-  }
-  return collapsed.trim();
-}
+//   for (const sequence of bestPath) {
+//     const values = sequence.dataSync();
+//     for (const k of values) {
+//       if (k !== blank && k !== lastChar) {
+//         collapsed += VOCAB[k];
+//         lastChar = k;
+//       } else if (k === blank) {
+//         lastChar = null;
+//       }
+//     }
+//     collapsed += " ";
+//   }
+//   return collapsed.trim();
+// }
 
 async function getHeatMapFromImage(imageObject) {
   let tensor = preprocessImageForDetection(imageObject);
@@ -138,120 +138,120 @@ async function getHeatMapFromImage(imageObject) {
   return heatmapCanvas;
 }
 
-function clamp(number, size) {
-  return Math.max(0, Math.min(number, size));
-}
+// function clamp(number, size) {
+//   return Math.max(0, Math.min(number, size));
+// }
 
-function transformBoundingBox(contour, id, size) {
-  let offset =
-    (contour.width * contour.height * 1.8) /
-    (2 * (contour.width + contour.height));
-  const p1 = clamp(contour.x - offset, size[1]) - 1;
-  const p2 = clamp(p1 + contour.width + 2 * offset, size[1]) - 1;
-  const p3 = clamp(contour.y - offset, size[0]) - 1;
-  const p4 = clamp(p3 + contour.height + 2 * offset, size[0]) - 1;
-  return {
-    id,
-    config: {
-      stroke: getRandomColor(),
-    },
-    coordinates: [
-      [p1 / size[1], p3 / size[0]],
-      [p2 / size[1], p3 / size[0]],
-      [p2 / size[1], p4 / size[0]],
-      [p1 / size[1], p4 / size[0]],
-    ],
-  };
-}
+// function transformBoundingBox(contour, id, size) {
+//   let offset =
+//     (contour.width * contour.height * 1.8) /
+//     (2 * (contour.width + contour.height));
+//   const p1 = clamp(contour.x - offset, size[1]) - 1;
+//   const p2 = clamp(p1 + contour.width + 2 * offset, size[1]) - 1;
+//   const p3 = clamp(contour.y - offset, size[0]) - 1;
+//   const p4 = clamp(p3 + contour.height + 2 * offset, size[0]) - 1;
+//   return {
+//     id,
+//     config: {
+//       stroke: getRandomColor(),
+//     },
+//     coordinates: [
+//       [p1 / size[1], p3 / size[0]],
+//       [p2 / size[1], p3 / size[0]],
+//       [p2 / size[1], p4 / size[0]],
+//       [p1 / size[1], p4 / size[0]],
+//     ],
+//   };
+// }
 
-function extractBoundingBoxesFromHeatmap(heatmapCanvas, size) {
-  let src = cv.imread(heatmapCanvas);
-  cv.cvtColor(src, src, cv.COLOR_RGBA2GRAY, 0);
-  cv.threshold(src, src, 77, 255, cv.THRESH_BINARY);
-  cv.morphologyEx(src, src, cv.MORPH_OPEN, cv.Mat.ones(2, 2, cv.CV_8U));
-  let contours = new cv.MatVector();
-  let hierarchy = new cv.Mat();
-  cv.findContours(
-    src,
-    contours,
-    hierarchy,
-    cv.RETR_EXTERNAL,
-    cv.CHAIN_APPROX_SIMPLE
-  );
+// function extractBoundingBoxesFromHeatmap(heatmapCanvas, size) {
+//   let src = cv.imread(heatmapCanvas);
+//   cv.cvtColor(src, src, cv.COLOR_RGBA2GRAY, 0);
+//   cv.threshold(src, src, 77, 255, cv.THRESH_BINARY);
+//   cv.morphologyEx(src, src, cv.MORPH_OPEN, cv.Mat.ones(2, 2, cv.CV_8U));
+//   let contours = new cv.MatVector();
+//   let hierarchy = new cv.Mat();
+//   cv.findContours(
+//     src,
+//     contours,
+//     hierarchy,
+//     cv.RETR_EXTERNAL,
+//     cv.CHAIN_APPROX_SIMPLE
+//   );
 
-  const boundingBoxes = [];
-  for (let i = 0; i < contours.size(); ++i) {
-    const contourBoundingBox = cv.boundingRect(contours.get(i));
-    if (contourBoundingBox.width > 2 && contourBoundingBox.height > 2) {
-      boundingBoxes.unshift(transformBoundingBox(contourBoundingBox, i, size));
-    }
-  }
+//   const boundingBoxes = [];
+//   for (let i = 0; i < contours.size(); ++i) {
+//     const contourBoundingBox = cv.boundingRect(contours.get(i));
+//     if (contourBoundingBox.width > 2 && contourBoundingBox.height > 2) {
+//       boundingBoxes.unshift(transformBoundingBox(contourBoundingBox, i, size));
+//     }
+//   }
 
-  src.delete();
-  contours.delete();
-  hierarchy.delete();
-  return boundingBoxes;
-}
+//   src.delete();
+//   contours.delete();
+//   hierarchy.delete();
+//   return boundingBoxes;
+// }
 
-function getRandomColor() {
-  return "#" + Math.floor(Math.random() * 16777215).toString(16);
-}
+// function getRandomColor() {
+//   return "#" + Math.floor(Math.random() * 16777215).toString(16);
+//}
 
-async function detectAndRecognizeText(imageElement) {
-  const size = [512, 512];
-  const heatmapCanvas = await getHeatMapFromImage(imageElement);
-  const boundingBoxes = extractBoundingBoxesFromHeatmap(heatmapCanvas, size);
-  console.log("extractBoundingBoxesFromHeatmap", boundingBoxes);
+// async function detectAndRecognizeText(imageElement) {
+//   const size = [512, 512];
+//   const heatmapCanvas = await getHeatMapFromImage(imageElement);
+//   const boundingBoxes = extractBoundingBoxesFromHeatmap(heatmapCanvas, size);
+//   console.log("extractBoundingBoxesFromHeatmap", boundingBoxes);
 
-  previewCanvas.width = imageElement.width;
-  previewCanvas.height = imageElement.height;
-  const ctx = previewCanvas.getContext("2d");
-  ctx.drawImage(imageElement, 0, 0);
+//   previewCanvas.width = imageElement.width;
+//   previewCanvas.height = imageElement.height;
+//   const ctx = previewCanvas.getContext("2d");
+//   ctx.drawImage(imageElement, 0, 0);
 
-  let fullText = "";
-  const crops = [];
+//   let fullText = "";
+//   const crops = [];
 
-  for (const box of boundingBoxes) {
-    // Draw bounding box
-    const [x1, y1] = box.coordinates[0];
-    const [x2, y2] = box.coordinates[2];
-    const width = (x2 - x1) * imageElement.width;
-    const height = (y2 - y1) * imageElement.height;
-    const x = x1 * imageElement.width;
-    const y = y1 * imageElement.height;
+//   for (const box of boundingBoxes) {
+//     // Draw bounding box
+//     const [x1, y1] = box.coordinates[0];
+//     const [x2, y2] = box.coordinates[2];
+//     const width = (x2 - x1) * imageElement.width;
+//     const height = (y2 - y1) * imageElement.height;
+//     const x = x1 * imageElement.width;
+//     const y = y1 * imageElement.height;
 
-    ctx.strokeStyle = box.config.stroke;
-    ctx.lineWidth = 2;
-    ctx.strokeRect(x, y, width, height);
+//     ctx.strokeStyle = box.config.stroke;
+//     ctx.lineWidth = 2;
+//     ctx.strokeRect(x, y, width, height);
 
-    // Create crop
-    const croppedCanvas = document.createElement("canvas");
-    croppedCanvas.width = width;
-    croppedCanvas.height = height;
-    croppedCanvas
-      .getContext("2d")
-      .drawImage(imageElement, x, y, width, height, 0, 0, width, height);
+//     // Create crop
+//     const croppedCanvas = document.createElement("canvas");
+//     croppedCanvas.width = width;
+//     croppedCanvas.height = height;
+//     croppedCanvas
+//       .getContext("2d")
+//       .drawImage(imageElement, x, y, width, height, 0, 0, width, height);
 
-    crops.push(croppedCanvas);
-  }
+//     crops.push(croppedCanvas);
+//   }
 
-  // Process crops in batches
-  const batchSize = 32;
-  for (let i = 0; i < crops.length; i += batchSize) {
-    const batch = crops.slice(i, i + batchSize);
-    const inputTensor = preprocessImageForRecognition(batch);
+//   // Process crops in batches
+//   const batchSize = 32;
+//   for (let i = 0; i < crops.length; i += batchSize) {
+//     const batch = crops.slice(i, i + batchSize);
+//     const inputTensor = preprocessImageForRecognition(batch);
 
-    const predictions = await recognitionModel.executeAsync(inputTensor);
-    const probabilities = tf.softmax(predictions, -1);
-    const bestPath = tf.unstack(tf.argMax(probabilities, -1), 0);
+//     const predictions = await recognitionModel.executeAsync(inputTensor);
+//     const probabilities = tf.softmax(predictions, -1);
+//     const bestPath = tf.unstack(tf.argMax(probabilities, -1), 0);
 
-    const words = decodeText(bestPath);
-    fullText += words + " ";
+//     const words = decodeText(bestPath);
+//     fullText += words + " ";
 
-    tf.dispose([inputTensor, predictions, probabilities, ...bestPath]);
-  }
-  return fullText.trim();
-}
+//     tf.dispose([inputTensor, predictions, probabilities, ...bestPath]);
+//   }
+//   return fullText.trim();
+// }
 
 function handleCapture() {
   canvas.width = video.videoWidth;
