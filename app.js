@@ -176,6 +176,16 @@ function hideLoading() {
 // Initialize the application
 async function init() {
     try {
+        if ('serviceWorker' in navigator) {
+            window.addEventListener('load', () => {
+                navigator.serviceWorker.register('service-worker.js')
+                    .then(registration => {
+                        console.log('ServiceWorker registration successful with scope: ', registration.scope);
+                    }, err => {
+                        console.log('ServiceWorker registration failed: ', err);
+                    });
+            });
+        }
         await initializeWorker();
         await setupCamera();
         updateUIState(UIState.READY);
