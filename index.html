@@ -66,6 +66,17 @@
         }
       }
     </style>
+    <!-- Add these lines in your index.html -->
+    <link rel="icon" type="image/png" href="image/png/icon.png">
+    <link rel="apple-touch-icon" href="image/png/icon.png">
+    
+    <!-- Update manifest.json reference -->
+    <link rel="manifest" href="manifest.json">
+    
+    <!-- Add security meta tags -->
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self' blob: data: https://cdn.jsdelivr.net https://docs.opencv.org; worker-src 'self' blob:; script-src 'self' 'unsafe-eval' https://cdn.jsdelivr.net https://docs.opencv.org; style-src 'self' 'unsafe-inline';">
   </head>
   <body>
     <header class="header">
@@ -77,11 +88,6 @@
 
     <main class="container">
       <section class="hero">
-        <h1>Extract Text from Images in Real-time</h1>
-        <p>
-          Advanced text recognition with instant results. Perfect for documents,
-          signs, and more.
-        </p>
       </section>
 
       <div class="scanner-container">
