@@ -1,112 +1,106 @@
-// Add this at the beginning of your main script
-let textDetectionWorker;
+// Import required libraries in worker
+importScripts('https://cdn.jsdelivr.net/npm/@tensorflow/tfjs/dist/tf.min.js');
+importScripts('https://docs.opencv.org/4.5.2/opencv.js');
 
-async function initializeWorker() {
-    textDetectionWorker = new Worker('textDetectionWorker.js');
-    
-    return new Promise((resolve, reject) => {
-        textDetectionWorker.onmessage = function(e) {
-            const { type, error, results } = e.data;
-            
-            switch (type) {
-                case 'initialized':
-                    resolve();
-                    break;
-                case 'error':
-                    reject(new Error(error));
-                    break;
-            }
-        };
-        
-        textDetectionWorker.postMessage({ type: 'init' });
+// Constants
+const REC_MEAN = 0.694;
+const REC_STD = 0.298;
+const DET_MEAN = 0.785;
+const DET_STD = 0.275;
+const VOCAB = "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ!\"#$%&'()*+,-./:;<=>?@[\\]^_`{|}~°£€¥¢฿àâéèêëîïôùûüçÀÂÉÈÊËÎÏÔÙÛÜÇ";
+const TARGET_SIZE = [512, 512];
+
+let detectionModel;
+let recognitionModel;
+
+// Helper functions
+function preprocessImageForDetection(imageData) {
+    let tensor = tf.tidy(() => {
+        return tf.browser.fromPixels(imageData)
+            .resizeNearestNeighbor(TARGET_SIZE)
+            .toFloat();
     });
+    let mean = tf.scalar(255 * DET_MEAN);
+    let std = tf.scalar(255 * DET_STD);
+    return tensor.sub(mean).div(std).expandDims();
 }
 
-// Modify your handleCapture function
-async function handleCapture() {
-    disableCaptureButton();
-    showLoading('Processing image...');
-
-    const targetSize = TARGET_SIZE;
-    canvas.width = targetSize[0];
-    canvas.height = targetSize[1];
-    canvas.getContext('2d').drawImage(video, 0, 0, canvas.width, canvas.height);
-
-    imageDataUrl = canvas.toDataURL('image/jpeg');
-    
-    const img = new Image();
-    img.src = imageDataUrl;
-    img.onload = async () => {
-        try {
-            // Get image data from canvas
-            const ctx = canvas.getContext('2d');
-            const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-
-            // Process image using web worker
-            textDetectionWorker.onmessage = function(e) {
-                const { type, results, error } = e.data;
-                
-                if (type === 'error') {
-                    console.error('Worker error:', error);
-                    resultElement.textContent = 'Error occurred during text extraction';
-                    return;
-                }
-                
-                if (type === 'results') {
-                    extractedData = results;
-                    extractedText = results.map(item => item.word).join(' ');
-                    resultElement.textContent = `Extracted Text: ${extractedText}`;
-                    
-                    // Draw bounding boxes on preview canvas
-                    drawBoundingBoxes(results);
-                    
-                    previewCanvas.style.display = 'block';
-                    confirmButton.style.display = 'inline-block';
-                    retryButton.style.display = 'inline-block';
-                    captureButton.style.display = 'none';
-                }
-            };
-
-            textDetectionWorker.postMessage({
-                type: 'process',
-                data: {
-                    imageData,
-                    width: canvas.width,
-                    height: canvas.height
-                }
-            });
-
-        } catch (error) {
-            console.error('Error during text extraction:', error);
-            resultElement.textContent = 'Error occurred during text extraction';
-        } finally {
-            enableCaptureButton();
-            hideLoading();
+function preprocessImageForRecognition(crops) {
+    const targetSize = [32, 128];
+    const tensors = crops.map((crop) => {
+        let h = crop.height;
+        let w = crop.width;
+        let resizeTarget, paddingTarget;
+        let aspectRatio = targetSize[1] / targetSize[0];
+        if (aspectRatio * h > w) {
+            resizeTarget = [targetSize[0], Math.round((targetSize[0] * w) / h)];
+            paddingTarget = [[0, 0], [0, targetSize[1] - Math.round((targetSize[0] * w) / h)], [0, 0]];
+        } else {
+            resizeTarget = [Math.round((targetSize[1] * h) / w), targetSize[1]];
+            paddingTarget = [[0, targetSize[0] - Math.round((targetSize[1] * h) / w)], [0, 0], [0, 0]];
         }
-    };
+        return tf.tidy(() => {
+            return tf.browser.fromPixels(crop)
+                .resizeNearestNeighbor(resizeTarget)
+                .pad(paddingTarget, 0)
+                .toFloat()
+                .expandDims();
+        });
+    });
+    const tensor = tf.concat(tensors);
+    let mean = tf.scalar(255 * REC_MEAN);
+    let std = tf.scalar(255 * REC_STD);
+    return tensor.sub(mean).div(std);
 }
 
-// Add worker cleanup on page unload
-window.addEventListener('unload', () => {
-    if (textDetectionWorker) {
-        textDetectionWorker.terminate();
-    }
-});
-
-// Modify your init function to include worker initialization
-async function init() {
-    showLoading('Initializing...');
-    
+async function detectAndRecognizeText(imageData) {
     try {
-        await initializeWorker();
-        await setupCamera();
+        const tensor = preprocessImageForDetection(imageData);
+        const detection = await detectionModel.execute(tensor);
+        const boxes = extractBoundingBoxes(detection);
         
-        captureButton.disabled = false;
-        captureButton.textContent = 'Capture';
+        const results = await recognizeText(boxes, imageData);
         
-        hideLoading();
+        tf.dispose([tensor, detection]);
+        return results;
     } catch (error) {
-        console.error('Initialization error:', error);
-        showLoading('Error initializing application. Please refresh.');
+        throw error;
     }
 }
+
+// Worker message handling
+self.onmessage = async function(e) {
+    const { type, data } = e.data;
+
+    switch (type) {
+        case 'init':
+            try {
+                await tf.ready();
+                await tf.setBackend('cpu'); // Use CPU in worker
+                
+                // Load models
+                detectionModel = await tf.loadGraphModel('models/db_mobilenet_v2/model.json');
+                recognitionModel = await tf.loadGraphModel('models/crnn_mobilenet_v2/model.json');
+                
+                self.postMessage({ type: 'initialized' });
+            } catch (error) {
+                self.postMessage({ type: 'error', error: error.message });
+            }
+            break;
+
+        case 'process':
+            try {
+                const results = await detectAndRecognizeText(data.imageData);
+                self.postMessage({ 
+                    type: 'results', 
+                    results: {
+                        extractedData: results,
+                        extractedText: results.map(item => item.word).join(' ')
+                    }
+                });
+            } catch (error) {
+                self.postMessage({ type: 'error', error: error.message });
+            }
+            break;
+    }
+};
