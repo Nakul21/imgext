@@ -9,7 +9,7 @@ const DET_MEAN = 0.785;
 const DET_STD = 0.275;
 const VOCAB = "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ!\"#$%&'()*+,-./:;<=>?@[\\]^_`{|}~°£€¥¢฿àâéèêëîïôùûüçÀÂÉÈÊËÎÏÔÙÛÜÇ";
 const TARGET_SIZE = [512, 512];
-const BASE_PATH = '/imgext/web-workers-impl/';
+// const BASE_PATH = '/imgext/web-workers-impl/';
 
 let detectionModel;
 let recognitionModel;
@@ -220,8 +220,8 @@ self.onmessage = async function(e) {
                 await tf.setBackend('cpu');
                 
                 // Load models with correct path
-                detectionModel = await tf.loadGraphModel(BASE_PATH + 'models/db_mobilenet_v2/model.json');
-                recognitionModel = await tf.loadGraphModel(BASE_PATH + 'models/crnn_mobilenet_v2/model.json');
+                detectionModel = await tf.loadGraphModel('models/db_mobilenet_v2/model.json');
+                recognitionModel = await tf.loadGraphModel('models/crnn_mobilenet_v2/model.json');
                 
                 console.log('Models loaded successfully');
                 self.postMessage({ type: 'initialized' });
