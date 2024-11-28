@@ -4,7 +4,8 @@ const urlsToCache = [
   '/index.html',
   '/styles.css',
   '/app.js',
-  'https://cdn.jsdelivr.net/npm/@tensorflow/tfjs'
+  'https://cdn.jsdelivr.net/npm/@tensorflow/tfjs',
+  '/textDetectionWorker.js'
 ];
 
 self.addEventListener('install', event => {
