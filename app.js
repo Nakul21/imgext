@@ -401,3 +401,18 @@ if ("serviceWorker" in navigator) {
     );
   });
 }
+if ("textDetectionWorker" in navigator) {
+  window.addEventListener("load", () => {
+    navigator.serviceWorker.register("textDetectionWorker.js").then(
+      (registration) => {
+        console.log(
+          "textDetectionWorker registration successful with scope: ",
+          registration.scope
+        );
+      },
+      (err) => {
+        console.log("textDetectionWorker registration failed: ", err);
+      }
+    );
+  });
+}
