@@ -7,6 +7,8 @@
       content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no"
     />
     <title>Text Extraction App</title>
+    <meta http-equiv="Cross-Origin-Opener-Policy" content="same-origin">
+    <meta http-equiv="Cross-Origin-Embedder-Policy" content="require-corp">
     <link rel="stylesheet" href="styles.css" />
     <link rel="manifest" href="manifest.json" />
     <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@3.11.0/dist/tf.min.js"></script>
@@ -88,8 +90,8 @@
         <div class="app-container">
           <div class="video-container">
             <video id="video" autoplay playsinline></video>
-            <canvas id="canvas" style="display: none;"></canvas>
-            <canvas id="previewCanvas" style="display: none;"></canvas>
+            <canvas id="canvas" style="display: none"></canvas>
+            <canvas id="previewCanvas" style="display: none"></canvas>
           </div>
 
           <div id="processingOverlay" class="processing-overlay hidden">
@@ -113,20 +115,22 @@
                 </svg>
                 Capture
               </button>
-              <button id="confirmButton" class="button" style="display: none;">Confirm</button>
-              <button id="retryButton" class="button" style="display: none;">Retry</button>
+              <button id="confirmButton" class="button" style="display: none">
+                Confirm
+              </button>
+              <button id="retryButton" class="button" style="display: none">
+                Retry
+              </button>
             </div>
             <div class="result-container">
               <div id="actionButtons" style="display: none">
                 <button id="sendButton" class="button">Send</button>
-                <button id="discardButton" class="button" >Discard</button>
+                <button id="discardButton" class="button">Discard</button>
               </div>
               <div id="result" class="result"></div>
               <div id="apiResponse" class="api-response"></div>
             </div>
           </div>
-
-          
         </div>
       </div>
     </main>
