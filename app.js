@@ -87,7 +87,7 @@ async function handleSend() {
 
 function toggleButtons(showActionButtons) {
   captureButton.style.display = showActionButtons ? "none" : "block";
-  actionButtons.style.display = showActionButtons ? "block" : "none";
+  actionButtons.style.display = showActionButtons ? "flex" : "none";
 }
 
 function resetUI() {
